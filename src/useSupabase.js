@@ -124,7 +124,10 @@ export function useSupabaseMutation() {
   const insert = async (table, data) => {
     try {
       setLoading(true);
-      const { error: err } = await supabase.from(table).insert([data]);
+      const { data: result, error: err } = await supabase
+  .from(table)
+  .insert([data])
+  .select();
       if (err) throw err;
       return { success: true };
     } catch (err) {
