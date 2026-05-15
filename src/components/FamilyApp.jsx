@@ -79,11 +79,13 @@ export default function FamilyApp({ user }) {
       user_id: user.id,
       ...item,
     });
-    if (result.success) {
+ if (result.success) {
   setShowForm(false);
   showToast("เพิ่มตารางแล้ว");
-  // Refresh data
-  window.location.reload();
+  // Re-fetch data
+  fetchSchedules();
+}
+
 }
     }
   };
