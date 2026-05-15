@@ -93,7 +93,9 @@ export default function FamilyApp({ user }) {
   const handleDeleteSchedule = async (id) => {
     if (!confirm("ลบรายการนี้?")) return;
     await deleteSchedule('schedule_items', id);
-    showToast("ลบแล้ว");
+showToast("ลบแล้ว");
+// Re-fetch data
+fetchSchedules();
   };
 
   const handleToggleSchedule = async (id, status) => {
