@@ -80,8 +80,11 @@ export default function FamilyApp({ user }) {
       ...item,
     });
     if (result.success) {
-      setShowForm(false);
-      showToast("เพิ่มตารางแล้ว");
+  setShowForm(false);
+  showToast("เพิ่มตารางแล้ว");
+  // Refresh data
+  window.location.reload();
+}
     }
   };
 
