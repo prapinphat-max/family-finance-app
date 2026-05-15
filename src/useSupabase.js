@@ -174,3 +174,62 @@ export function useSupabaseMutation() {
 
   return { insert, update, delete_, loading, error };
 }
+// Hook: useSupabaseMutation - ใช้สำหรับ Insert/Update/Delete
+export function useSupabaseMutation() {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  const insert = async (table, data) => {
+    try {
+      setLoading(true);
+      const { data: result, error: err } = await supabase
+        .from(table)
+        .insert([data])
+        .select();
+      if (err) throw err;
+      return { success: true, data: result };
+    } catch (err) {
+      setError(err.message);
+      return { success: false, error: err.message };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const update = async (table, id, data) => {
+    try {
+      setLoading(true);
+      const { data: result, error: err } = await supabase
+        .from(table)
+        .update(data)
+        .eq('id', id)
+        .select();
+      if (err) throw err;
+      return { success: true, data: result };
+    } catch (err) {
+      setError(err.message);
+      return { success: false, error: err.message };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const delete_item = async (table, id) => {
+    try {
+      setLoading(true);
+      const { error: err } = await supabase
+        .from(table)
+        .delete()
+        .eq('id', id);
+      if (err) throw err;
+      return { success: true };
+    } catch (err) {
+      setError(err.message);
+      return { success: false, error: err.message };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return { insert, update, delete: delete_item, loading, error };
+}

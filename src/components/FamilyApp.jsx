@@ -51,6 +51,14 @@ export default function FamilyApp({ user }) {
     setTimeout(() => setToast(""), 2500);
   };
 
+  const fetchSchedules = async () => {
+    const { data, error } = await supabase
+      .from('schedule_items')
+      .select('*')
+      .eq('user_id', user.id);
+    if (!error) setScheduleItems(data);
+  };
+
   const handleAddMember = async () => {
     const name = memberInput.trim();
     if (!name) return;
@@ -75,32 +83,42 @@ export default function FamilyApp({ user }) {
   };
 
   const handleAddSchedule = async (item) => {
-    const result = await insertSchedule('schedule_items', {
-      user_id: user.id,
-      ...item,
-    });
- if (result.success) {
-  setShowForm(false);
-  showToast("เพิ่มตารางแล้ว");
-  // Re-fetch data
-  fetchSchedules();
-}
-
-}
+    if (editing) {
+      // Update existing
+      const result = await updateSchedule('schedule_items', editing.id, {
+        ...item,
+      });
+      if (result.success) {
+        setShowForm(false);
+        setEditing(null);
+        showToast("แก้ไขแล้ว");
+        fetchSchedules();
+      }
+    } else {
+      // Add new
+      const result = await insertSchedule('schedule_items', {
+        user_id: user.id,
+        ...item,
+      });
+      if (result.success) {
+        setShowForm(false);
+        showToast("เพิ่มตารางแล้ว");
+        fetchSchedules();
+      }
     }
   };
 
   const handleDeleteSchedule = async (id) => {
     if (!confirm("ลบรายการนี้?")) return;
     await deleteSchedule('schedule_items', id);
-showToast("ลบแล้ว");
-// Re-fetch data
-fetchSchedules();
+    showToast("ลบแล้ว");
+    fetchSchedules();
   };
 
   const handleToggleSchedule = async (id, status) => {
     const newStatus = status === "done" ? "pending" : "done";
     await updateSchedule('schedule_items', id, { status: newStatus });
+    fetchSchedules();
   };
 
   const filtered = useMemo(() => {
@@ -164,10 +182,13 @@ fetchSchedules();
                 </div>
               </div>
               <div style={styles.cardActions}>
-                <button onClick={() => handleToggleSchedule(item.id, item.status)} style={styles.btnSmall}>
+                <button onClick={() => { setEditing(item); setShowForm(true); }} style={styles.btnSmall} title="แก้ไข">
+                  <Edit3 size={14} />
+                </button>
+                <button onClick={() => handleToggleSchedule(item.id, item.status)} style={styles.btnSmall} title={item.status === "done" ? "ยกเลิก" : "สำเร็จ"}>
                   {item.status === "done" ? <X size={14} /> : <Check size={14} />}
                 </button>
-                <button onClick={() => handleDeleteSchedule(item.id)} style={styles.btnSmall}>
+                <button onClick={() => handleDeleteSchedule(item.id)} style={styles.btnSmall} title="ลบ">
                   <Trash2 size={14} />
                 </button>
               </div>
@@ -256,8 +277,8 @@ const styles = {
   overlay: { position: 'fixed', inset: '0', background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 },
   modal: { background: 'white', borderRadius: '10px', padding: '20px', width: '90%', maxWidth: '400px', boxShadow: '0 10px 40px rgba(0,0,0,0.2)' },
   modalTitle: { margin: '0 0 16px 0', fontSize: '16px', fontWeight: 600 },
-  input: { width: '100%', padding: '8px 10px', border: '1px solid #DDE3D7', borderRadius: '6px', marginBottom: '8px', fontSize: '13px', fontFamily: 'inherit' },
-  textarea: { width: '100%', padding: '8px 10px', border: '1px solid #DDE3D7', borderRadius: '6px', marginBottom: '8px', fontSize: '13px', fontFamily: 'inherit', minHeight: '60px', resize: 'vertical' },
+  input: { width: '100%', padding: '8px 10px', border: '1px solid #DDE3D7', borderRadius: '6px', marginBottom: '8px', fontSize: '13px', fontFamily: 'inherit', boxSizing: 'border-box' },
+  textarea: { width: '100%', padding: '8px 10px', border: '1px solid #DDE3D7', borderRadius: '6px', marginBottom: '8px', fontSize: '13px', fontFamily: 'inherit', minHeight: '60px', resize: 'vertical', boxSizing: 'border-box' },
   modalActions: { display: 'flex', gap: '8px', justifyContent: 'flex-end' },
   btnCancel: { padding: '8px 12px', border: '1px solid #DDE3D7', background: 'transparent', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontFamily: 'inherit' },
   toast: { position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)', background: '#1E2620', color: 'white', padding: '10px 16px', borderRadius: '6px', fontSize: '13px', zIndex: 200 },
