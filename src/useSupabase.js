@@ -96,6 +96,7 @@ export function useSupabaseMutation() {
 
   return { insert, update, delete_: delete_item, loading, error };
 }
+
 // Hook: useAuth - ใช้สำหรับ authentication
 export function useAuth() {
   const [user, setUser] = useState(null);
@@ -124,20 +125,42 @@ export function useAuth() {
     return () => subscription?.unsubscribe();
   }, []);
 
-  const login = async () => {
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: window.location.origin,
-      },
-    });
-    if (error) console.error('Login error:', error);
+  const login = async (email, password) => {
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      if (error) throw error;
+      return { success: true, data };
+    } catch (err) {
+      console.error('Login error:', err.message);
+      return { success: false, error: err };
+    }
+  };
+
+  const signup = async (email, password) => {
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+      });
+      if (error) throw error;
+      return { success: true, data };
+    } catch (err) {
+      console.error('Signup error:', err.message);
+      return { success: false, error: err };
+    }
   };
 
   const logout = async () => {
-    await supabase.auth.signOut();
-    setUser(null);
+    try {
+      await supabase.auth.signOut();
+      setUser(null);
+    } catch (err) {
+      console.error('Logout error:', err.message);
+    }
   };
 
-  return { user, loading, login, logout };
+  return { user, loading, login, signup, logout };
 }
