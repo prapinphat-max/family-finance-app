@@ -1,84 +1,14 @@
-import { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import { useState, useEffect } from 'react';
 
-// Initialize Supabase
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-// Hook: useAuth - ใช้สำหรับ Login/Logout
-export function useAuth() {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-  useEffect(() => {
-    // ตรวจสอบ session ปัจจุบัน
-    const checkAuth = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        setUser(session?.user || null);
-      } catch (err) {
-        setError(err.message);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    checkAuth();
-
-    // Listen to auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        setUser(session?.user || null);
-      }
-    );
-
-    return () => subscription?.unsubscribe();
-  }, []);
-
-  const signInWithGoogle = async () => {
-    try {
-      setLoading(true);
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
-        },
-      });
-      if (error) throw error;
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const signOut = async () => {
-    try {
-      setLoading(true);
-      const { error } = await supabase.auth.signOut();
-      if (error) throw error;
-      setUser(null);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return {
-    user,
-    loading,
-    error,
-    signInWithGoogle,
-    signOut,
-  };
-}
-
-// Hook: useSupabaseQuery - ใช้สำหรับ query data จาก Supabase
-export function useSupabaseQuery(table, userId, filter = null) {
-  const [data, setData] = useState([]);
+// Hook: useSupabaseQuery - ใช้สำหรับ fetch data
+export function useSupabaseQuery(table, userId) {
+  const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -86,94 +16,27 @@ export function useSupabaseQuery(table, userId, filter = null) {
     const fetchData = async () => {
       try {
         setLoading(true);
-        let query = supabase.from(table).select('*');
-
-        if (userId) {
-          query = query.eq('user_id', userId);
-        }
-
-        if (filter) {
-          Object.entries(filter).forEach(([key, value]) => {
-            query = query.eq(key, value);
-          });
-        }
-
-        const { data: result, error: err } = await query;
+        const { data: result, error: err } = await supabase
+          .from(table)
+          .select('*')
+          .eq('user_id', userId);
+        
         if (err) throw err;
         setData(result || []);
       } catch (err) {
         setError(err.message);
+        setData([]);
       } finally {
         setLoading(false);
       }
     };
 
-    if (userId) {
-      fetchData();
-    }
-  }, [table, userId, filter]);
+    if (userId) fetchData();
+  }, [table, userId]);
 
   return { data, loading, error };
 }
 
-// Hook: useSupabaseMutation - ใช้สำหรับ Insert/Update/Delete
-export function useSupabaseMutation() {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-
-  const insert = async (table, data) => {
-    try {
-      setLoading(true);
-      const { data: result, error: err } = await supabase
-  .from(table)
-  .insert([data])
-  .select();
-      if (err) throw err;
-      return { success: true };
-    } catch (err) {
-      setError(err.message);
-      return { success: false, error: err.message };
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const update = async (table, id, data) => {
-    try {
-      setLoading(true);
-      const { error: err } = await supabase
-        .from(table)
-        .update(data)
-        .eq('id', id);
-      if (err) throw err;
-      return { success: true };
-    } catch (err) {
-      setError(err.message);
-      return { success: false, error: err.message };
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const delete_ = async (table, id) => {
-    try {
-      setLoading(true);
-      const { error: err } = await supabase
-        .from(table)
-        .delete()
-        .eq('id', id);
-      if (err) throw err;
-      return { success: true };
-    } catch (err) {
-      setError(err.message);
-      return { success: false, error: err.message };
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return { insert, update, delete_, loading, error };
-}
 // Hook: useSupabaseMutation - ใช้สำหรับ Insert/Update/Delete
 export function useSupabaseMutation() {
   const [loading, setLoading] = useState(false);
@@ -231,5 +94,50 @@ export function useSupabaseMutation() {
     }
   };
 
-  return { insert, update, delete: delete_item, loading, error };
+  return { insert, update, delete_: delete_item, loading, error };
+}
+// Hook: useAuth - ใช้สำหรับ authentication
+export function useAuth() {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const getSession = async () => {
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (error) throw error;
+        setUser(session?.user || null);
+      } catch (err) {
+        console.error('Auth error:', err.message);
+        setUser(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    getSession();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user || null);
+    });
+
+    return () => subscription?.unsubscribe();
+  }, []);
+
+  const login = async () => {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: window.location.origin,
+      },
+    });
+    if (error) console.error('Login error:', error);
+  };
+
+  const logout = async () => {
+    await supabase.auth.signOut();
+    setUser(null);
+  };
+
+  return { user, loading, login, logout };
 }
