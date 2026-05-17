@@ -1,463 +1,349 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { useSupabaseQuery, useSupabaseMutation, supabase } from '../useSupabase';
-import { Plus, Check, X, Clock, Calendar, Edit3, Trash2, Users, ChevronLeft, ChevronRight } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { supabase } from '../useSupabase';
 
-const THAI_MONTHS = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
-const THAI_DAYS = ["อาทิตย์","จันทร์","อังคาร","พุธ","พฤหัสบดี","ศุกร์","เสาร์"];
+const DAYS = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
+const MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
 
-const todayISO = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+const COLOR_MAP = { bright: '#2E7D32', brill: '#1565C0', benay: '#7B1FA2', pui: '#795548', 'ปุ้ย': '#795548', ball: '#EF6C00' };
+const getColor = (name) => COLOR_MAP[String(name || '').trim().toLowerCase()] || '#607D8B';
+
+const toLocalISO = (d) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 };
-
-const formatThaiDateShort = (iso) => {
-  if (!iso) return "-";
-  const d = new Date(iso + "T00:00:00");
-  return `${d.getDate()} ${THAI_MONTHS[d.getMonth()]}`;
-};
-
-const formatThaiDateFull = (iso) => {
-  if (!iso) return "-";
-  const d = new Date(iso + "T00:00:00");
-  return `${THAI_DAYS[d.getDay()]} ${d.getDate()} ${THAI_MONTHS[d.getMonth()]} ${d.getFullYear() + 543}`;
-};
-
-const formatTimeRange = (startTime, endTime) => {
-  if (!startTime && !endTime) return "";
-  if (startTime && endTime) return `${startTime}-${endTime}`;
-  if (startTime) return startTime;
-  return "";
-};
+const todayISO = () => toLocalISO(new Date());
 
 export default function FamilyApp({ user }) {
   const [members, setMembers] = useState([]);
-  const [scheduleItems, setScheduleItems] = useState([]);
-  const [filter, setFilter] = useState("upcoming");
-  const [activeTab, setActiveTab] = useState("list"); // list, calendar, summary
+  const [tasks, setTasks] = useState([]);
+  const [taskMembers, setTaskMembers] = useState([]);
+  const [selectedDate, setSelectedDate] = useState(todayISO());
+  const [month, setMonth] = useState(todayISO().slice(0, 7));
+  const [viewMode, setViewMode] = useState('all');
+  const [activeMemberId, setActiveMemberId] = useState('all');
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
-  const [memberInput, setMemberInput] = useState("");
-  const [toast, setToast] = useState("");
-  const [currentMonth, setCurrentMonth] = useState(new Date());
 
-  const { data: memberData } = useSupabaseQuery('family_members', user.id);
-  const { data: scheduleData } = useSupabaseQuery('schedule_items', user.id);
-  const { insert: insertMember, delete_: deleteMember } = useSupabaseMutation();
-  const { insert: insertSchedule, update: updateSchedule, delete_: deleteSchedule } = useSupabaseMutation();
+  const [title, setTitle] = useState('');
+  const [date, setDate] = useState(todayISO());
+  const [start, setStart] = useState('');
+  const [end, setEnd] = useState('');
+  const [selectedMembers, setSelectedMembers] = useState([]);
+  const [locationUrl, setLocationUrl] = useState('');
+  const [zoomUrl, setZoomUrl] = useState('');
+  const [zoomUser, setZoomUser] = useState('');
+  const [zoomPass, setZoomPass] = useState('');
+  const [note, setNote] = useState('');
 
-  useEffect(() => {
-    if (memberData) setMembers(memberData);
-  }, [memberData]);
+  const [repeat, setRepeat] = useState(false);
+  const [repeatEnd, setRepeatEnd] = useState('');
+  const [weekdays, setWeekdays] = useState([1, 2, 3, 4, 5]);
+  const [skip, setSkip] = useState('');
 
-  useEffect(() => {
-    if (scheduleData) setScheduleItems(scheduleData);
-  }, [scheduleData]);
+  const [subParentId, setSubParentId] = useState('');
+  const [subTitle, setSubTitle] = useState('');
+  const [subStart, setSubStart] = useState('');
+  const [subEnd, setSubEnd] = useState('');
+  const [subNote, setSubNote] = useState('');
+  const [showSubForm, setShowSubForm] = useState(false);
+  const [selectedSubIds, setSelectedSubIds] = useState([]);
+  const [message, setMessage] = useState('');
 
-  const showToast = (msg) => {
-    setToast(msg);
-    setTimeout(() => setToast(""), 2500);
+  const show = (m) => { setMessage(m); setTimeout(() => setMessage(''), 3000); };
+
+  useEffect(() => { if (user?.id) load(); }, [user?.id]);
+
+  const load = async () => {
+    const [m, t, tm] = await Promise.all([
+      supabase.from('family_members').select('*').eq('user_id', user.id).order('created_at'),
+      supabase.from('tasks').select('*').eq('user_id', user.id).order('date'),
+      supabase.from('task_members').select('*').eq('user_id', user.id),
+    ]);
+    if (m.error) return show(m.error.message);
+    if (t.error) return show(t.error.message);
+    if (tm.error) return show(tm.error.message);
+    setMembers(m.data || []);
+    setTasks(t.data || []);
+    setTaskMembers(tm.data || []);
   };
 
-  const fetchSchedules = async () => {
-    const { data, error } = await supabase
-      .from('schedule_items')
-      .select('*')
-      .eq('user_id', user.id);
-    if (!error) setScheduleItems(data);
-  };
+  const membersWithColors = useMemo(() => (members || []).map((m) => ({ ...m, color: m.color || getColor(m.name) })), [members]);
+  const mainTasks = useMemo(() => (tasks || []).filter((t) => (t.task_level || 'main') !== 'sub'), [tasks]);
+  const subTasks = useMemo(() => (tasks || []).filter((t) => t.task_level === 'sub'), [tasks]);
 
-  const handleAddMember = async () => {
-    const name = memberInput.trim();
-    if (!name) return;
-    if (members.some(m => m.name === name)) {
-      showToast("มีชื่อนี้แล้ว");
-      return;
+  const getMembersOfTask = (taskId) => {
+    const ids = (taskMembers || []).filter((x) => x.task_id === taskId).map((x) => x.member_id);
+    return membersWithColors.filter((m) => ids.includes(m.id));
+  };
+  const isTaskForMember = (task, memberId) => memberId === 'all' || (taskMembers || []).some((x) => x.task_id === task.id && x.member_id === memberId);
+  const getSubs = (parentId) => subTasks.filter((s) => s.parent_task_id === parentId).sort((a, b) => String(a.start_time || '').localeCompare(String(b.start_time || '')));
+
+  const visibleMainTasks = useMemo(() => mainTasks.filter((t) => viewMode === 'all' || isTaskForMember(t, activeMemberId)), [mainTasks, viewMode, activeMemberId, taskMembers]);
+  const dayTasks = useMemo(() => visibleMainTasks.filter((t) => t.date === selectedDate).sort((a, b) => String(a.start_time || '').localeCompare(String(b.start_time || ''))), [visibleMainTasks, selectedDate]);
+
+  const calendar = useMemo(() => {
+    const [y, m] = month.split('-').map(Number);
+    const first = new Date(y, m - 1, 1);
+    const last = new Date(y, m, 0);
+    const arr = [];
+    for (let i = 0; i < first.getDay(); i++) arr.push({ empty: true, tasks: [] });
+    for (let d = 1; d <= last.getDate(); d++) {
+      const iso = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      arr.push({ empty: false, day: d, date: iso, tasks: visibleMainTasks.filter((t) => t.date === iso).sort((a, b) => String(a.start_time || '').localeCompare(String(b.start_time || ''))) });
     }
-    const result = await insertMember('family_members', {
-      user_id: user.id,
-      name,
-    });
-    if (result.success) {
-      setMemberInput("");
-      showToast("เพิ่มสมาชิกแล้ว");
-    }
+    return arr;
+  }, [month, visibleMainTasks]);
+
+  const changeMonth = (offset) => {
+    const [y, m] = month.split('-').map(Number);
+    const d = new Date(y, m - 1 + offset, 1);
+    setMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  };
+  const monthLabel = useMemo(() => {
+    const [y, m] = month.split('-').map(Number);
+    return `${MONTHS[m - 1]} ${y + 543}`;
+  }, [month]);
+
+  const toggleMember = (id) => setSelectedMembers((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+  const toggleWeekday = (day) => setWeekdays((prev) => prev.includes(day) ? prev.filter((x) => x !== day) : [...prev, day].sort());
+
+  const startEdit = (task) => {
+    setEditing(task); setShowForm(true);
+    setTitle(task.title || ''); setDate(task.date || todayISO()); setStart(task.start_time || ''); setEnd(task.end_time || '');
+    setLocationUrl(task.location_url || ''); setZoomUrl(task.zoom_url || ''); setZoomUser(task.zoom_username || ''); setZoomPass(task.zoom_passcode || ''); setNote(task.note || '');
+    setSelectedMembers((taskMembers || []).filter((x) => x.task_id === task.id).map((x) => x.member_id));
   };
 
-  const handleRemoveMember = async (id) => {
-    if (!confirm("ลบสมาชิกนี้?")) return;
-    await deleteMember('family_members', id);
-    showToast("ลบสมาชิกแล้ว");
+  const resetForm = () => {
+    setEditing(null); setTitle(''); setDate(todayISO()); setStart(''); setEnd(''); setLocationUrl(''); setZoomUrl(''); setZoomUser(''); setZoomPass(''); setNote('');
+    setSelectedMembers([]); setRepeat(false); setRepeatEnd(''); setSkip('');
   };
 
-  const handleAddSchedule = async (item) => {
+  const save = async () => {
+    if (!title.trim()) return show('ใส่ชื่องาน');
+    if (!selectedMembers.length) return show('เลือกสมาชิก');
+
     if (editing) {
-      const result = await updateSchedule('schedule_items', editing.id, { ...item });
-      if (result.success) {
-        setShowForm(false);
-        setEditing(null);
-        showToast("แก้ไขแล้ว");
-        fetchSchedules();
-      }
-    } else {
-      const result = await insertSchedule('schedule_items', {
-        user_id: user.id,
-        ...item,
-      });
-      if (result.success) {
-        setShowForm(false);
-        showToast("เพิ่มตารางแล้ว");
-        fetchSchedules();
-      }
+      const { error } = await supabase.from('tasks').update({
+        title: title.trim(), date, start_time: start, end_time: end, location_url: locationUrl.trim(), zoom_url: zoomUrl.trim(), zoom_username: zoomUser.trim(), zoom_passcode: zoomPass.trim(), note: note.trim()
+      }).eq('id', editing.id).eq('user_id', user.id);
+      if (error) return show(error.message);
+      await supabase.from('task_members').delete().eq('task_id', editing.id).eq('user_id', user.id);
+      const r = await supabase.from('task_members').insert(selectedMembers.map((member_id) => ({ task_id: editing.id, member_id, user_id: user.id })));
+      if (r.error) return show(r.error.message);
+      show('แก้ไขแล้ว'); resetForm(); setShowForm(false); load(); return;
     }
+
+    const makeOne = async (taskDate) => {
+      const { data, error } = await supabase.from('tasks').insert({
+        title: title.trim(), date: taskDate, start_time: start, end_time: end, location_url: locationUrl.trim(), zoom_url: zoomUrl.trim(), zoom_username: zoomUser.trim(), zoom_passcode: zoomPass.trim(), note: note.trim(), task_level: 'main', user_id: user.id
+      }).select().single();
+      if (error) throw error;
+      const r = await supabase.from('task_members').insert(selectedMembers.map((member_id) => ({ task_id: data.id, member_id, user_id: user.id })));
+      if (r.error) throw r.error;
+    };
+
+    try {
+      if (repeat) {
+        if (!repeatEnd) return show('เลือกวันที่สิ้นสุด');
+        const skipSet = new Set(skip.split(',').map((x) => x.trim()).filter(Boolean));
+        const startDate = new Date(date + 'T00:00:00');
+        const endDate = new Date(repeatEnd + 'T00:00:00');
+        let count = 0;
+        for (let cur = new Date(startDate); cur <= endDate; cur.setDate(cur.getDate() + 1)) {
+          const iso = toLocalISO(cur);
+          if (weekdays.includes(cur.getDay()) && !skipSet.has(iso)) { await makeOne(iso); count += 1; }
+        }
+        show(`สร้างตารางซ้ำแล้ว ${count} รายการ`);
+      } else { await makeOne(date); show('เพิ่มงานแล้ว'); }
+      resetForm(); setShowForm(false); load();
+    } catch (e) { show(e.message); }
   };
 
-  const handleDeleteSchedule = async (id) => {
-    if (!confirm("ลบรายการนี้?")) return;
-    await deleteSchedule('schedule_items', id);
-    showToast("ลบแล้ว");
-    fetchSchedules();
+  const del = async (id) => {
+    if (!confirm('ลบรายการนี้?')) return;
+    const { error } = await supabase.from('tasks').delete().eq('id', id).eq('user_id', user.id);
+    if (error) return show(error.message);
+    show('ลบแล้ว'); load();
   };
 
-  const handleToggleSchedule = async (id, status) => {
-    const newStatus = status === "done" ? "pending" : "done";
-    await updateSchedule('schedule_items', id, { status: newStatus });
-    fetchSchedules();
+  const openSubForm = (parentTask) => {
+    setSubParentId(parentTask.id); setSubTitle(''); setSubStart(''); setSubEnd(''); setSubNote(''); setShowSubForm(true);
   };
 
-  const filtered = useMemo(() => {
-    let list = [...scheduleItems];
-    const t = todayISO();
-    if (filter === "today") list = list.filter(i => i.status !== "done" && i.date === t);
-    else if (filter === "upcoming") list = list.filter(i => i.status !== "done" && i.date >= t);
-    else if (filter === "done") list = list.filter(i => i.status === "done");
-    
-    return list.sort((a, b) => {
-      if (a.status === "done" && b.status !== "done") return 1;
-      if (b.status === "done" && a.status !== "done") return -1;
-      return (a.date || "").localeCompare(b.date || "");
+  const addSubTask = async () => {
+    if (!subParentId) return show('เลือกงานหลักก่อน');
+    if (!subTitle.trim()) return show('ใส่ชื่องานย่อย');
+    const parent = mainTasks.find((t) => t.id === subParentId);
+    if (!parent) return show('ไม่พบงานหลัก');
+    const { error } = await supabase.from('tasks').insert({
+      user_id: user.id, title: subTitle.trim(), date: parent.date, start_time: subStart, end_time: subEnd, note: subNote.trim(), task_level: 'sub', parent_task_id: subParentId
     });
-  }, [scheduleItems, filter]);
-
-  // Calendar view
-  const calendarDays = useMemo(() => {
-    const year = currentMonth.getFullYear();
-    const month = currentMonth.getMonth();
-    const firstDay = new Date(year, month, 1);
-    const lastDay = new Date(year, month + 1, 0);
-    const daysInMonth = lastDay.getDate();
-    const startingDayOfWeek = firstDay.getDay();
-    
-    const days = [];
-    for (let i = 0; i < startingDayOfWeek; i++) {
-      days.push(null);
-    }
-    for (let i = 1; i <= daysInMonth; i++) {
-      days.push(new Date(year, month, i));
-    }
-    return days;
-  }, [currentMonth]);
-
-  const getSchedulesForDate = (date) => {
-    if (!date) return [];
-    const iso = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
-    return scheduleItems.filter(item => item.date === iso && item.status !== "done");
+    if (error) return show(error.message);
+    show('เพิ่มงานย่อยแล้ว'); setSubTitle(''); setSubStart(''); setSubEnd(''); setSubNote(''); setShowSubForm(false); load();
   };
 
-  // Summary by member
-  const summaryByMember = useMemo(() => {
-    const summary = {};
-    members.forEach(m => {
-      summary[m.id] = scheduleItems.filter(s => s.member_id === m.id && s.status !== "done");
-    });
-    return summary;
-  }, [members, scheduleItems]);
+  const toggleSubSelect = (subId) => setSelectedSubIds((prev) => prev.includes(subId) ? prev.filter((id) => id !== subId) : [...prev, subId]);
 
-  return (
-    <div style={styles.root}>
-      {/* Header */}
-      <div style={styles.header}>
-        <h2 style={styles.title}>📅 ตารางครอบครัว</h2>
-        <button style={styles.btnPrimary} onClick={() => { setEditing(null); setShowForm(true); }}>
-          <Plus size={14} /> เพิ่มตาราง
-        </button>
-      </div>
-
-      {/* Members Section */}
-      <div style={styles.section}>
-        <h3 style={styles.sectionTitle}><Users size={16} /> สมาชิกในครอบครัว</h3>
-        <div style={styles.memberList}>
-          {members.map(m => (
-            <div key={m.id} style={styles.memberChip}>
-              {m.name}
-              <button onClick={() => handleRemoveMember(m.id)} style={styles.memberDelete}>✕</button>
-            </div>
-          ))}
-          <input
-            style={styles.memberInput}
-            placeholder="+ เพิ่มชื่อ"
-            value={memberInput}
-            onChange={e => setMemberInput(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && handleAddMember()}
-          />
-        </div>
-      </div>
-
-      {/* Tabs */}
-      <div style={styles.tabs}>
-        {[["list","📋 รายการ"],["calendar","📅 ปฏิทิน"],["summary","👥 สรุป"]].map(([k,l]) => (
-          <button key={k} onClick={() => setActiveTab(k)} style={{...styles.tab, ...(activeTab === k ? styles.tabActive : {})}}>
-            {l}
-          </button>
-        ))}
-      </div>
-
-      {/* LIST VIEW */}
-      {activeTab === "list" && (
-        <div>
-          <div style={styles.filterBar}>
-            {[["today","วันนี้"],["upcoming","ที่จะถึง"],["done","เสร็จแล้ว"]].map(([k,l]) => (
-              <button key={k} onClick={() => setFilter(k)} style={{...styles.pill, ...(filter === k ? styles.pillActive : {})}}>
-                {l}
-              </button>
-            ))}
-          </div>
-
-          {filtered.length === 0 ? (
-            <div style={styles.empty}>ไม่มีรายการ</div>
-          ) : (
-            <div style={styles.list}>
-              {filtered.map(item => (
-                <div key={item.id} style={{...styles.card, ...(item.status === "done" ? styles.cardDone : {})}}>
-                  <div style={styles.cardContent}>
-                    <div style={styles.cardTitle}>{item.title}</div>
-                    {members.find(m => m.id === item.member_id) && (
-                      <div style={styles.cardMember}>👤 {members.find(m => m.id === item.member_id)?.name}</div>
-                    )}
-                    <div style={styles.cardMeta}>
-                      {item.date && <span><Calendar size={12} /> {formatThaiDateShort(item.date)}</span>}
-                      {formatTimeRange(item.start_time, item.end_time) && <span><Clock size={12} /> {formatTimeRange(item.start_time, item.end_time)}</span>}
-                    </div>
-                    {item.note && <div style={styles.cardNote}>{item.note}</div>}
-                  </div>
-                  <div style={styles.cardActions}>
-                    <button onClick={() => { setEditing(item); setShowForm(true); }} style={styles.btnSmall} title="แก้ไข">
-                      <Edit3 size={14} />
-                    </button>
-                    <button onClick={() => handleToggleSchedule(item.id, item.status)} style={styles.btnSmall} title={item.status === "done" ? "ยกเลิก" : "สำเร็จ"}>
-                      {item.status === "done" ? <X size={14} /> : <Check size={14} />}
-                    </button>
-                    <button onClick={() => handleDeleteSchedule(item.id)} style={styles.btnSmall} title="ลบ">
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* CALENDAR VIEW */}
-      {activeTab === "calendar" && (
-        <div style={styles.calendarSection}>
-          <div style={styles.calendarHeader}>
-            <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1))} style={styles.btnNav}>
-              <ChevronLeft size={16} />
-            </button>
-            <h3 style={styles.calendarTitle}>
-              {THAI_MONTHS[currentMonth.getMonth()]} {currentMonth.getFullYear() + 543}
-            </h3>
-            <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1))} style={styles.btnNav}>
-              <ChevronRight size={16} />
-            </button>
-          </div>
-
-          <div style={styles.weekdays}>
-            {THAI_DAYS.map(day => (
-              <div key={day} style={styles.weekday}>{day}</div>
-            ))}
-          </div>
-
-          <div style={styles.daysGrid}>
-            {calendarDays.map((date, idx) => {
-              const schedules = getSchedulesForDate(date);
-              return (
-                <div key={idx} style={{...styles.dayCell, ...(date && date.toDateString() === new Date().toDateString() ? styles.dayToday : {})}}>
-                  {date && (
-                    <>
-                      <div style={styles.dayNumber}>{date.getDate()}</div>
-                      <div style={styles.daySchedules}>
-                        {schedules.slice(0, 2).map(s => (
-                          <div key={s.id} style={styles.dayScheduleItem} title={s.title}>
-                            {s.title.substring(0, 8)}
-                          </div>
-                        ))}
-                        {schedules.length > 2 && (
-                          <div style={styles.dayMore}>+{schedules.length - 2}</div>
-                        )}
-                      </div>
-                    </>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* SUMMARY VIEW */}
-      {activeTab === "summary" && (
-        <div style={styles.summarySection}>
-          {members.length === 0 ? (
-            <div style={styles.empty}>ยังไม่มีสมาชิก</div>
-          ) : (
-            members.map(member => (
-              <div key={member.id} style={styles.summaryCard}>
-                <h4 style={styles.summaryTitle}>👤 {member.name}</h4>
-                {summaryByMember[member.id]?.length === 0 ? (
-                  <div style={styles.summaryEmpty}>ไม่มีตารางสำหรับสมาชิกนี้</div>
-                ) : (
-                  <div style={styles.summaryList}>
-                    {summaryByMember[member.id]?.map(item => (
-                      <div key={item.id} style={styles.summaryItem}>
-                        <div>{item.title}</div>
-                        <div style={styles.summaryMeta}>{formatThaiDateShort(item.date)} {formatTimeRange(item.start_time, item.end_time)}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))
-          )}
-        </div>
-      )}
-
-      {showForm && (
-        <ScheduleForm
-          members={members}
-          item={editing}
-          onSave={handleAddSchedule}
-          onClose={() => { setShowForm(false); setEditing(null); }}
-        />
-      )}
-
-      {toast && <div style={styles.toast}>{toast}</div>}
-    </div>
-  );
-}
-
-function ScheduleForm({ members, item, onSave, onClose }) {
-  const [type, setType] = useState(item?.type || "study");
-  const [title, setTitle] = useState(item?.title || "");
-  const [memberId, setMemberId] = useState(item?.member_id || "");
-  const [date, setDate] = useState(item?.date || todayISO());
-  const [startTime, setStartTime] = useState(item?.start_time || "");
-  const [endTime, setEndTime] = useState(item?.end_time || "");
-  const [mapLink, setMapLink] = useState(item?.map_link || "");
-  const [note, setNote] = useState(item?.note || "");
-
-  const todayISO = () => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  const toggleAllSubs = (subs) => {
+    const ids = subs.map((s) => s.id);
+    const allSelected = ids.length > 0 && ids.every((id) => selectedSubIds.includes(id));
+    setSelectedSubIds((prev) => allSelected ? prev.filter((id) => !ids.includes(id)) : Array.from(new Set([...prev, ...ids])));
   };
 
-  const submit = () => {
-    if (!title.trim()) return;
-    onSave({
-      type,
-      title: title.trim(),
-      member_id: memberId ? parseInt(memberId) : null,
-      date,
-      start_time: startTime,
-      end_time: endTime,
-      map_link: mapLink.trim(),
-      note: note.trim(),
-      status: "pending",
-    });
+  const deleteSelectedSubs = async (parentId) => {
+    const ids = selectedSubIds.filter((id) => subTasks.some((s) => s.id === id && s.parent_task_id === parentId));
+    if (!ids.length) return show('ยังไม่ได้เลือกงานย่อย');
+    if (!confirm(`ลบงานย่อยที่เลือก ${ids.length} รายการ?`)) return;
+    const { error } = await supabase.from('tasks').delete().in('id', ids).eq('user_id', user.id);
+    if (error) return show(error.message);
+    setSelectedSubIds((prev) => prev.filter((id) => !ids.includes(id)));
+    show(`ลบงานย่อยแล้ว ${ids.length} รายการ`); load();
   };
 
   return (
-    <div style={styles.overlay} onClick={onClose}>
-      <div style={styles.modal} onClick={e => e.stopPropagation()}>
-        <h3 style={styles.modalTitle}>{item ? "แก้ไข" : "เพิ่ม"}ตาราง</h3>
-        <input style={styles.input} placeholder="หัวข้อ" value={title} onChange={e => setTitle(e.target.value)} autoFocus />
-        
-        <select style={styles.input} value={memberId} onChange={e => setMemberId(e.target.value)}>
-          <option value="">-- เลือกสมาชิก (ไม่บังคับ) --</option>
-          {members.map(m => (
-            <option key={m.id} value={m.id}>{m.name}</option>
-          ))}
-        </select>
-
-        <input style={styles.input} type="date" value={date} onChange={e => setDate(e.target.value)} />
-        <input style={styles.input} type="time" placeholder="เวลาเริ่ม" value={startTime} onChange={e => setStartTime(e.target.value)} />
-        <input style={styles.input} type="time" placeholder="เวลาจบ" value={endTime} onChange={e => setEndTime(e.target.value)} />
-        <input style={styles.input} type="url" placeholder="ลิงก์ Map" value={mapLink} onChange={e => setMapLink(e.target.value)} />
-        <textarea style={styles.textarea} placeholder="หมายเหตุ" value={note} onChange={e => setNote(e.target.value)} />
-        
-        <div style={styles.modalActions}>
-          <button style={styles.btnCancel} onClick={onClose}>ยกเลิก</button>
-          <button style={styles.btnPrimary} onClick={submit}>บันทึก</button>
+    <div style={styles.page}>
+      <div style={styles.calendarCard}>
+        <div style={styles.monthBar}>
+          <button style={styles.navBtn} onClick={() => changeMonth(-1)}>←</button>
+          <b>{monthLabel}</b>
+          <button style={styles.navBtn} onClick={() => changeMonth(1)}>→</button>
         </div>
+        <div style={styles.calendar}>
+          {DAYS.map((d) => <div key={d} style={styles.head}>{d}</div>)}
+          {(calendar || []).map((d, i) => (
+            <div key={i} onClick={() => d.date && setSelectedDate(d.date)} style={{ ...styles.day, ...(d.date === selectedDate ? styles.selectedDay : {}) }}>
+              {d.day && <b style={d.date === todayISO() ? styles.today : {}}>{d.day}</b>}
+              {(d.tasks || []).map((t) => {
+                const ms = getMembersOfTask(t.id);
+                const color = ms.length === 1 ? ms[0].color : '#263238';
+                return (
+                  <div key={t.id} style={{ ...styles.event, background: color }}>
+                    <div>{t.start_time || '--:--'}-{t.end_time || '--:--'} {t.title}</div>
+                    <small>{ms.map((m) => m.name).join(', ')}</small>
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={styles.panel}>
+        <div style={styles.toolbar}>
+          <button style={viewMode === 'all' ? styles.activeTab : styles.tab} onClick={() => { setViewMode('all'); setActiveMemberId('all'); }}>รวม</button>
+          <button style={viewMode === 'personal' ? styles.activeTab : styles.tab} onClick={() => { setViewMode('personal'); if (activeMemberId === 'all' && membersWithColors[0]) setActiveMemberId(membersWithColors[0].id); }}>รายคน</button>
+          {viewMode === 'personal' && membersWithColors.map((m) => (
+            <button key={m.id} onClick={() => setActiveMemberId(m.id)} style={{ ...styles.memberPill, borderColor: m.color, background: activeMemberId === m.id ? m.color : '#fff', color: activeMemberId === m.id ? '#fff' : m.color }}>{m.name}</button>
+          ))}
+          <button style={styles.addBtn} onClick={() => setShowForm(!showForm)}>{showForm ? 'ปิดฟอร์ม' : '+ เพิ่มงาน'}</button>
+        </div>
+
+        {showForm && (
+          <div style={styles.form}>
+            <b>{editing ? 'แก้ไขงาน' : 'เพิ่มงาน'}</b>
+            <input style={styles.input} placeholder="ชื่อ" value={title} onChange={(e) => setTitle(e.target.value)} />
+            <input style={styles.input} type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+            <input style={styles.input} type="time" value={start} onChange={(e) => setStart(e.target.value)} />
+            <input style={styles.input} type="time" value={end} onChange={(e) => setEnd(e.target.value)} />
+            <input style={styles.input} placeholder="Map" value={locationUrl} onChange={(e) => setLocationUrl(e.target.value)} />
+            <input style={styles.input} placeholder="Zoom" value={zoomUrl} onChange={(e) => setZoomUrl(e.target.value)} />
+            <input style={styles.input} placeholder="User" value={zoomUser} onChange={(e) => setZoomUser(e.target.value)} />
+            <input style={styles.input} placeholder="Pass" value={zoomPass} onChange={(e) => setZoomPass(e.target.value)} />
+            <textarea style={styles.input} placeholder="note" value={note} onChange={(e) => setNote(e.target.value)} />
+            <div style={styles.memberSelect}>{membersWithColors.map((m) => (
+              <label key={m.id} style={{ ...styles.checkPill, borderColor: m.color, color: m.color }}><input type="checkbox" checked={selectedMembers.includes(m.id)} onChange={() => toggleMember(m.id)} />{m.name}</label>
+            ))}</div>
+            {!editing && (
+              <>
+                <label><input type="checkbox" checked={repeat} onChange={(e) => setRepeat(e.target.checked)} /> ตารางซ้ำ</label>
+                {repeat && <div style={styles.repeatBox}>
+                  <div>{DAYS.map((d, idx) => <button key={d} type="button" onClick={() => toggleWeekday(idx)} style={weekdays.includes(idx) ? styles.dayActiveBtn : styles.dayBtn}>{d}</button>)}</div>
+                  <input style={styles.input} type="date" value={repeatEnd} onChange={(e) => setRepeatEnd(e.target.value)} />
+                  <input style={styles.input} placeholder="skip เช่น 2026-05-20,2026-05-25" value={skip} onChange={(e) => setSkip(e.target.value)} />
+                </div>}
+              </>
+            )}
+            <div style={{ display: 'flex', gap: 8 }}><button style={styles.saveBtn} onClick={save}>บันทึก</button>{editing && <button style={styles.cancelBtn} onClick={resetForm}>ยกเลิก</button>}</div>
+          </div>
+        )}
+
+        {message && <div style={styles.message}>{message}</div>}
+        <h3>{selectedDate}</h3>
+        {dayTasks.length === 0 ? <div style={styles.empty}>ไม่มีรายการวันนี้</div> : dayTasks.map((t) => {
+          const ms = getMembersOfTask(t.id);
+          const color = ms.length === 1 ? ms[0].color : '#263238';
+          const subs = getSubs(t.id);
+          return (
+            <div key={t.id} style={{ ...styles.detailCard, borderLeftColor: color }}>
+              <div style={styles.detailTop}><div><b>{t.start_time || '--:--'}-{t.end_time || '--:--'} {t.title}</b><div style={styles.nameRow}>{ms.map((m) => <span key={m.id} style={{ ...styles.nameChip, background: m.color }}>{m.name}</span>)}</div></div><div><button onClick={() => startEdit(t)}>แก้ไข</button><button style={styles.deleteBtn} onClick={() => del(t.id)}>ลบ</button></div></div>
+              {t.location_url && <div><a href={t.location_url} target="_blank" rel="noreferrer">📍 Google Maps</a></div>}
+              {t.zoom_url && <div><a href={t.zoom_url} target="_blank" rel="noreferrer">🎥 Zoom</a></div>}
+              {t.zoom_username && <div style={styles.note}>User/ID: {t.zoom_username}</div>}
+              {t.zoom_passcode && <div style={styles.note}>Passcode: {t.zoom_passcode}</div>}
+              {t.note && <div style={styles.note}>Note: {t.note}</div>}
+
+              {viewMode === 'personal' && (
+                <div style={styles.subBox}>
+                  <div style={styles.subHeaderRow}><b>ตารางย่อย / วิชา</b>{subs.length > 0 && <div style={styles.subBulkActions}><label style={styles.bulkLabel}><input type="checkbox" checked={subs.length > 0 && subs.every((s) => selectedSubIds.includes(s.id))} onChange={() => toggleAllSubs(subs)} />เลือกทั้งหมด</label><button style={styles.bulkDeleteBtn} onClick={() => deleteSelectedSubs(t.id)}>ลบที่เลือก</button></div>}</div>
+                  {subs.length === 0 ? <div style={styles.empty}>ยังไม่มีงานย่อย</div> : subs.map((s) => (
+                    <div key={s.id} style={styles.subItem}><label style={styles.subCheckRow}><input type="checkbox" checked={selectedSubIds.includes(s.id)} onChange={() => toggleSubSelect(s.id)} /><span><b>{s.start_time || '--:--'}-{s.end_time || '--:--'}</b> {s.title}{s.note && <div style={styles.note}>{s.note}</div>}</span></label></div>
+                  ))}
+                  <button style={styles.addSubBtn} onClick={() => openSubForm(t)}>+ เพิ่มงานย่อย / วิชาใต้รายการนี้</button>
+                  {showSubForm && subParentId === t.id && <div style={styles.subForm}><input style={styles.input} placeholder="ชื่อวิชา/งานย่อย" value={subTitle} onChange={(e) => setSubTitle(e.target.value)} /><div style={{ display: 'flex', gap: 6 }}><input style={styles.input} type="time" value={subStart} onChange={(e) => setSubStart(e.target.value)} /><input style={styles.input} type="time" value={subEnd} onChange={(e) => setSubEnd(e.target.value)} /></div><input style={styles.input} placeholder="หมายเหตุของงานย่อย" value={subNote} onChange={(e) => setSubNote(e.target.value)} /><div style={{ display: 'flex', gap: 6 }}><button style={styles.saveBtn} onClick={addSubTask}>บันทึกงานย่อย</button><button style={styles.cancelBtn} onClick={() => setShowSubForm(false)}>ยกเลิก</button></div></div>}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
 }
 
 const styles = {
-  root: { padding: '16px', maxWidth: '1200px', margin: '0 auto' },
-  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' },
-  title: { margin: '0', fontSize: '20px', fontWeight: 600 },
-  section: { marginBottom: '20px' },
-  sectionTitle: { fontSize: '14px', fontWeight: 500, color: '#43504A', margin: '0 0 10px 0', display: 'flex', alignItems: 'center', gap: '6px' },
-  memberList: { display: 'flex', gap: '5px', flexWrap: 'wrap' },
-  memberChip: { display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '6px 12px', background: '#E8EBE3', borderRadius: '999px', fontSize: '13px' },
-  memberDelete: { border: 'none', background: 'none', cursor: 'pointer', color: '#7D8A82', padding: '0 2px' },
-  memberInput: { padding: '6px 12px', border: '1px solid #DDE3D7', borderRadius: '6px', fontSize: '13px', fontFamily: 'inherit' },
-  btnPrimary: { padding: '8px 13px', background: '#2D6E5C', color: 'white', border: 'none', borderRadius: '6px', fontSize: '13px', fontWeight: 500, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' },
-  tabs: { display: 'flex', gap: '8px', marginBottom: '16px', borderBottom: '1px solid #DDE3D7' },
-  tab: { padding: '10px 16px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '13px', fontWeight: 500, color: '#7D8A82', borderBottom: '2px solid transparent' },
-  tabActive: { color: '#2D6E5C', borderBottomColor: '#2D6E5C' },
-  filterBar: { display: 'flex', gap: '8px', marginBottom: '16px' },
-  pill: { padding: '6px 11px', border: '1px solid #DDE3D7', borderRadius: '999px', background: 'transparent', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit' },
-  pillActive: { background: '#1E2620', color: 'white', borderColor: '#1E2620' },
-  empty: { textAlign: 'center', padding: '40px', color: '#7D8A82', fontSize: '13px' },
-  list: { display: 'flex', flexDirection: 'column', gap: '8px' },
-  card: { background: 'white', border: '1px solid #DDE3D7', borderRadius: '8px', padding: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' },
-  cardDone: { opacity: 0.5 },
-  cardContent: { flex: 1 },
-  cardTitle: { fontWeight: 500, marginBottom: '4px' },
-  cardMember: { fontSize: '12px', color: '#2D6E5C', marginBottom: '4px', fontWeight: 500 },
-  cardMeta: { display: 'flex', gap: '10px', fontSize: '12px', color: '#43504A', marginBottom: '4px' },
-  cardNote: { fontSize: '12px', color: '#7D8A82', marginTop: '4px', fontStyle: 'italic' },
-  cardActions: { display: 'flex', gap: '4px' },
-  btnSmall: { padding: '4px 6px', border: '1px solid #DDE3D7', background: 'transparent', borderRadius: '4px', cursor: 'pointer', color: '#7D8A82' },
-  calendarSection: { background: 'white', border: '1px solid #DDE3D7', borderRadius: '8px', padding: '16px' },
-  calendarHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' },
-  calendarTitle: { margin: '0', fontSize: '16px', fontWeight: 600 },
-  btnNav: { padding: '6px 10px', border: '1px solid #DDE3D7', background: 'transparent', borderRadius: '4px', cursor: 'pointer' },
-  weekdays: { display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px', marginBottom: '8px' },
-  weekday: { padding: '8px', textAlign: 'center', fontSize: '12px', fontWeight: 600, color: '#43504A' },
-  daysGrid: { display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px' },
-  dayCell: { minHeight: '80px', border: '1px solid #DDE3D7', borderRadius: '4px', padding: '4px', fontSize: '11px' },
-  dayToday: { background: '#E8EBE3' },
-  dayNumber: { fontWeight: 600, marginBottom: '4px' },
-  daySchedules: { display: 'flex', flexDirection: 'column', gap: '2px' },
-  dayScheduleItem: { background: '#2D6E5C', color: 'white', padding: '2px 4px', borderRadius: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-  dayMore: { color: '#2D6E5C', fontWeight: 600 },
-  summarySection: { display: 'flex', flexDirection: 'column', gap: '12px' },
-  summaryCard: { background: 'white', border: '1px solid #DDE3D7', borderRadius: '8px', padding: '12px' },
-  summaryTitle: { margin: '0 0 8px 0', fontSize: '14px', fontWeight: 600 },
-  summaryEmpty: { color: '#7D8A82', fontSize: '12px', fontStyle: 'italic' },
-  summaryList: { display: 'flex', flexDirection: 'column', gap: '6px' },
-  summaryItem: { padding: '8px', background: '#F5F7F3', borderRadius: '4px' },
-  summaryMeta: { fontSize: '11px', color: '#7D8A82', marginTop: '2px' },
-  overlay: { position: 'fixed', inset: '0', background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 },
-  modal: { background: 'white', borderRadius: '10px', padding: '20px', width: '90%', maxWidth: '400px', boxShadow: '0 10px 40px rgba(0,0,0,0.2)' },
-  modalTitle: { margin: '0 0 16px 0', fontSize: '16px', fontWeight: 600 },
-  input: { width: '100%', padding: '8px 10px', border: '1px solid #DDE3D7', borderRadius: '6px', marginBottom: '8px', fontSize: '13px', fontFamily: 'inherit', boxSizing: 'border-box' },
-  textarea: { width: '100%', padding: '8px 10px', border: '1px solid #DDE3D7', borderRadius: '6px', marginBottom: '8px', fontSize: '13px', fontFamily: 'inherit', minHeight: '60px', resize: 'vertical', boxSizing: 'border-box' },
-  modalActions: { display: 'flex', gap: '8px', justifyContent: 'flex-end' },
-  btnCancel: { padding: '8px 12px', border: '1px solid #DDE3D7', background: 'transparent', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontFamily: 'inherit' },
-  toast: { position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)', background: '#1E2620', color: 'white', padding: '10px 16px', borderRadius: '6px', fontSize: '13px', zIndex: 200 },
+  page: { display: 'grid', gridTemplateColumns: '1.45fr .95fr', gap: 12, padding: 16, background: '#F5F7F3', minHeight: '100vh', fontFamily: 'Sarabun, sans-serif' },
+  calendarCard: { background: '#fff', border: '1px solid #DDE3D7', borderRadius: 12, padding: 12 },
+  monthBar: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  navBtn: { border: '1px solid #CDD6CC', background: '#fff', borderRadius: 8, padding: '6px 10px', cursor: 'pointer' },
+  calendar: { display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 6 },
+  head: { textAlign: 'center', fontWeight: 800, color: '#2D6E5C', padding: 6 },
+  day: { minHeight: 120, border: '1px solid #E1E5DE', padding: 5, borderRadius: 8, background: '#fff', cursor: 'pointer', overflow: 'hidden' },
+  selectedDay: { outline: '3px solid #2D6E5C' },
+  today: { background: '#2D6E5C', color: '#fff', borderRadius: 999, padding: '2px 7px' },
+  event: { color: '#fff', fontSize: 11, marginTop: 4, padding: 4, borderRadius: 6, lineHeight: 1.2 },
+  panel: { background: '#fff', border: '1px solid #DDE3D7', borderRadius: 12, padding: 12 },
+  toolbar: { display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 },
+  tab: { padding: '7px 12px', borderRadius: 999, border: '1px solid #CDD6CC', background: '#fff', cursor: 'pointer', fontWeight: 700 },
+  activeTab: { padding: '7px 12px', borderRadius: 999, border: '1px solid #2D6E5C', background: '#2D6E5C', color: '#fff', cursor: 'pointer', fontWeight: 700 },
+  memberPill: { padding: '7px 11px', borderRadius: 999, border: '1px solid', cursor: 'pointer', fontWeight: 700 },
+  addBtn: { marginLeft: 'auto', background: '#2D6E5C', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 12px', cursor: 'pointer', fontWeight: 700 },
+  form: { border: '1px solid #E1E5DE', borderRadius: 10, padding: 10, marginBottom: 10, background: '#FAFAFA', display: 'grid', gap: 6 },
+  input: { padding: 8, border: '1px solid #CDD6CC', borderRadius: 7, fontFamily: 'inherit' },
+  memberSelect: { display: 'flex', gap: 7, flexWrap: 'wrap', marginTop: 6 },
+  checkPill: { padding: '5px 9px', borderRadius: 999, border: '1px solid', background: '#fff', fontWeight: 700 },
+  repeatBox: { display: 'grid', gap: 6, padding: 8, background: '#F5F7F3', borderRadius: 8, marginTop: 6 },
+  dayBtn: { marginRight: 4, border: '1px solid #ccc', background: '#fff', borderRadius: 999, padding: '5px 8px' },
+  dayActiveBtn: { marginRight: 4, border: '1px solid #2D6E5C', background: '#2D6E5C', color: '#fff', borderRadius: 999, padding: '5px 8px' },
+  saveBtn: { flex: 1, background: '#2D6E5C', color: '#fff', border: 'none', borderRadius: 7, padding: 9, fontWeight: 700 },
+  cancelBtn: { flex: 1, background: '#777', color: '#fff', border: 'none', borderRadius: 7, padding: 9, fontWeight: 700 },
+  message: { background: '#FFF8E1', border: '1px solid #FFE082', padding: 8, borderRadius: 8, marginBottom: 8 },
+  empty: { color: '#7A837C', fontSize: 13, padding: 8 },
+  detailCard: { background: '#F8FAF6', borderLeft: '6px solid', borderRadius: 10, padding: 10, marginBottom: 10 },
+  detailTop: { display: 'flex', justifyContent: 'space-between', gap: 8 },
+  nameRow: { display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 6 },
+  nameChip: { color: '#fff', borderRadius: 999, padding: '3px 7px', fontSize: 11, fontWeight: 700 },
+  deleteBtn: { marginLeft: 5, border: '1px solid #E57373', background: '#fff', color: '#C62828', borderRadius: 6, cursor: 'pointer' },
+  note: { fontSize: 12, color: '#4C554F', marginTop: 4 },
+  subBox: { marginTop: 8, paddingTop: 8, borderTop: '1px solid #E1E5DE' },
+  subHeaderRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 6 },
+  subBulkActions: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+  bulkLabel: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700 },
+  bulkDeleteBtn: { border: '1px solid #E57373', background: '#fff', color: '#C62828', borderRadius: 6, padding: '5px 9px', cursor: 'pointer', fontWeight: 700 },
+  subItem: { background: '#fff', border: '1px solid #E1E5DE', borderRadius: 7, padding: 7, marginTop: 6, fontSize: 13 },
+  subCheckRow: { display: 'flex', alignItems: 'flex-start', gap: 7 },
+  addSubBtn: { width: '100%', marginTop: 8, padding: 8, border: '1px dashed #2D6E5C', background: '#fff', color: '#2D6E5C', borderRadius: 7, cursor: 'pointer', fontWeight: 700 },
+  subForm: { marginTop: 8, padding: 8, border: '1px solid #DDE3D7', borderRadius: 8, background: '#fff', display: 'grid', gap: 6 },
 };
