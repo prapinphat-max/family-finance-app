@@ -91,6 +91,16 @@ export default function FamilyApp({ user }) {
   const isTaskForMember = (task, memberId) => memberId === 'all' || (taskMembers || []).some((x) => x.task_id === task.id && x.member_id === memberId);
   const getSubs = (parentId) => subTasks.filter((s) => s.parent_task_id === parentId).sort((a, b) => String(a.start_time || '').localeCompare(String(b.start_time || '')));
 
+
+  const getTaskStartDate = (task) => task.start_date || task.date;
+  const getTaskEndDate = (task) => task.end_date || task.start_date || task.date;
+
+  const isTaskOnDate = (task, isoDate) => {
+    const startD = getTaskStartDate(task);
+    const endD = getTaskEndDate(task);
+    return startD <= isoDate && isoDate <= endD;
+  };
+
   const visibleMainTasks = useMemo(() => mainTasks.filter((t) => viewMode === 'all' || isTaskForMember(t, activeMemberId)), [mainTasks, viewMode, activeMemberId, taskMembers]);
   const dayTasks = useMemo(() => visibleMainTasks.filter((t) => isTaskOnDate(t, selectedDate)).sort((a, b) => String(a.start_time || '').localeCompare(String(b.start_time || ''))), [visibleMainTasks, selectedDate]);
 
