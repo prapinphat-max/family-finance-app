@@ -51,6 +51,12 @@ export default function FamilyApp({ user }) {
   const [selectedSubIds, setSelectedSubIds] = useState([]);
   const [message, setMessage] = useState('');
 
+  const [showMemberManager, setShowMemberManager] = useState(false);
+  const [memberEditingId, setMemberEditingId] = useState(null);
+  const [memberName, setMemberName] = useState('');
+  const [memberColor, setMemberColor] = useState('#2E7D32');
+  const [memberAvatarUrl, setMemberAvatarUrl] = useState('');
+
   const show = (m) => { setMessage(m); setTimeout(() => setMessage(''), 3000); };
 
   useEffect(() => { if (user?.id) load(); }, [user?.id]);
@@ -203,6 +209,74 @@ export default function FamilyApp({ user }) {
     show(`ลบงานย่อยแล้ว ${ids.length} รายการ`); load();
   };
 
+
+  const resetMemberForm = () => {
+    setMemberEditingId(null);
+    setMemberName('');
+    setMemberColor('#2E7D32');
+    setMemberAvatarUrl('');
+  };
+
+  const startEditMember = (member) => {
+    setMemberEditingId(member.id);
+    setMemberName(member.name || '');
+    setMemberColor(member.color || getColor(member.name));
+    setMemberAvatarUrl(member.avatar_url || '');
+  };
+
+  const saveMember = async () => {
+    if (!memberName.trim()) return show('ใส่ชื่อสมาชิก');
+
+    if (memberEditingId) {
+      const { error } = await supabase
+        .from('family_members')
+        .update({
+          name: memberName.trim(),
+          color: memberColor,
+          avatar_url: memberAvatarUrl.trim(),
+        })
+        .eq('id', memberEditingId)
+        .eq('user_id', user.id);
+
+      if (error) return show(error.message);
+
+      show('แก้ไขสมาชิกแล้ว');
+      resetMemberForm();
+      load();
+      return;
+    }
+
+    const { error } = await supabase
+      .from('family_members')
+      .insert({
+        user_id: user.id,
+        name: memberName.trim(),
+        color: memberColor,
+        avatar_url: memberAvatarUrl.trim(),
+      });
+
+    if (error) return show(error.message);
+
+    show('เพิ่มสมาชิกแล้ว');
+    resetMemberForm();
+    load();
+  };
+
+  const deleteMember = async (memberId) => {
+    if (!confirm('ลบสมาชิกคนนี้? งานที่ผูกกับสมาชิกอาจได้รับผลกระทบ')) return;
+
+    const { error } = await supabase
+      .from('family_members')
+      .delete()
+      .eq('id', memberId)
+      .eq('user_id', user.id);
+
+    if (error) return show(error.message);
+
+    show('ลบสมาชิกแล้ว');
+    load();
+  };
+
   return (
     <div style={styles.page}>
       <div style={styles.calendarCard}>
@@ -239,7 +313,63 @@ export default function FamilyApp({ user }) {
             <button key={m.id} onClick={() => setActiveMemberId(m.id)} style={{ ...styles.memberPill, borderColor: m.color, background: activeMemberId === m.id ? m.color : '#fff', color: activeMemberId === m.id ? '#fff' : m.color }}>{m.name}</button>
           ))}
           <button style={styles.addBtn} onClick={() => setShowForm(!showForm)}>{showForm ? 'ปิดฟอร์ม' : '+ เพิ่มงาน'}</button>
+          <button style={styles.memberManageBtn} onClick={() => setShowMemberManager(!showMemberManager)}>
+            {showMemberManager ? 'ปิดสมาชิก' : 'จัดการสมาชิก'}
+          </button>
         </div>
+
+        {showMemberManager && (
+          <div style={styles.memberManager}>
+            <b>จัดการสมาชิก</b>
+
+            <div style={styles.memberFormGrid}>
+              <input
+                style={styles.input}
+                placeholder="ชื่อ เช่น Bright"
+                value={memberName}
+                onChange={(e) => setMemberName(e.target.value)}
+              />
+              <input
+                style={styles.colorInput}
+                type="color"
+                value={memberColor}
+                onChange={(e) => setMemberColor(e.target.value)}
+              />
+              <input
+                style={styles.input}
+                placeholder="Avatar URL (ไม่ใส่ก็ได้)"
+                value={memberAvatarUrl}
+                onChange={(e) => setMemberAvatarUrl(e.target.value)}
+              />
+              <button style={styles.saveBtn} onClick={saveMember}>
+                {memberEditingId ? 'บันทึกสมาชิก' : 'เพิ่มสมาชิก'}
+              </button>
+              {memberEditingId && (
+                <button style={styles.cancelBtn} onClick={resetMemberForm}>ยกเลิก</button>
+              )}
+            </div>
+
+            <div style={styles.memberList}>
+              {membersWithColors.map((m) => (
+                <div key={m.id} style={styles.memberRow}>
+                  <div style={{ ...styles.memberAvatar, background: m.color }}>
+                    {m.avatar_url ? (
+                      <img src={m.avatar_url} alt={m.name} style={styles.avatarImg} />
+                    ) : (
+                      <span>{String(m.name || '?').slice(0, 1).toUpperCase()}</span>
+                    )}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <b>{m.name}</b>
+                    <div style={styles.memberColorText}>{m.color}</div>
+                  </div>
+                  <button onClick={() => startEditMember(m)}>แก้ไข</button>
+                  <button style={styles.deleteBtn} onClick={() => deleteMember(m.id)}>ลบ</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {showForm && (
           <div style={styles.form}>
@@ -346,4 +476,14 @@ const styles = {
   subCheckRow: { display: 'flex', alignItems: 'flex-start', gap: 7 },
   addSubBtn: { width: '100%', marginTop: 8, padding: 8, border: '1px dashed #2D6E5C', background: '#fff', color: '#2D6E5C', borderRadius: 7, cursor: 'pointer', fontWeight: 700 },
   subForm: { marginTop: 8, padding: 8, border: '1px solid #DDE3D7', borderRadius: 8, background: '#fff', display: 'grid', gap: 6 },
+  memberManageBtn: { background: '#fff', color: '#2D6E5C', border: '1px solid #2D6E5C', borderRadius: 8, padding: '8px 12px', cursor: 'pointer', fontWeight: 700 },
+  memberManager: { border: '1px solid #DDE3D7', borderRadius: 10, padding: 10, marginBottom: 10, background: '#FAFAFA', display: 'grid', gap: 8 },
+  memberFormGrid: { display: 'grid', gridTemplateColumns: '1fr 52px 1fr auto auto', gap: 6, alignItems: 'center' },
+  colorInput: { width: 48, height: 38, padding: 2, border: '1px solid #CDD6CC', borderRadius: 7, background: '#fff' },
+  memberList: { display: 'grid', gap: 6 },
+  memberRow: { display: 'flex', alignItems: 'center', gap: 8, background: '#fff', border: '1px solid #E1E5DE', borderRadius: 8, padding: 8 },
+  memberAvatar: { width: 34, height: 34, borderRadius: 999, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, overflow: 'hidden' },
+  avatarImg: { width: '100%', height: '100%', objectFit: 'cover' },
+  memberColorText: { color: '#7A837C', fontSize: 11 },
+
 };
