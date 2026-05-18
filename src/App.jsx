@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useAuth } from './useSupabase';
+import { useAuth, supabase } from './useSupabase';
 import FamilyApp from './components/FamilyApp';
 
 export default function App() {
@@ -19,6 +19,19 @@ export default function App() {
     setMessage('');
   };
 
+  const loginWithGoogle = async () => {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: window.location.origin,
+      },
+    });
+
+    if (error) {
+      setMessage(error.message);
+    }
+  };
+
   if (loading) {
     return <div style={{ padding: 30 }}>Loading...</div>;
   }
@@ -26,7 +39,26 @@ export default function App() {
   if (!user) {
     return (
       <div style={{ padding: 30 }}>
-        <h2>Login</h2>
+        <h2>Family Calendar Login</h2>
+
+        <button
+          onClick={loginWithGoogle}
+          style={{
+            padding: 12,
+            marginBottom: 18,
+            display: 'block',
+            width: 300,
+            background: '#fff',
+            border: '1px solid #ccc',
+            borderRadius: 8,
+            cursor: 'pointer',
+            fontWeight: 700,
+          }}
+        >
+          Continue with Google
+        </button>
+
+        <div style={{ marginBottom: 12, color: '#777' }}>หรือ login ด้วย email/password</div>
 
         <input
           placeholder="Email"
