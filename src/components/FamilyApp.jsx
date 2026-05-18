@@ -55,6 +55,10 @@ export default function FamilyApp({ user }) {
   const [showSubForm, setShowSubForm] = useState(false);
   const [selectedSubIds, setSelectedSubIds] = useState([]);
   const [message, setMessage] = useState('');
+  const [pushStatus, setPushStatus] = useState('');
+
+  const [currentMember, setCurrentMember] = useState(null);
+  const [isChildUser, setIsChildUser] = useState(false);
 
   const [showMemberManager, setShowMemberManager] = useState(false);
   const [memberEditingId, setMemberEditingId] = useState(null);
@@ -66,18 +70,46 @@ export default function FamilyApp({ user }) {
 
   useEffect(() => { if (user?.id) load(); }, [user?.id]);
 
+  useEffect(() => {
+    if (isChildUser && currentMember) {
+      setViewMode('personal');
+      setActiveMemberId(currentMember.id);
+      setSelectedMembers([currentMember.id]);
+    }
+  }, [isChildUser, currentMember]);
+
   const load = async () => {
-    const [m, t, tm] = await Promise.all([
-      supabase.from('family_members').select('*').eq('user_id', user.id).order('created_at'),
-      supabase.from('tasks').select('*').eq('user_id', user.id).order('date'),
-      supabase.from('task_members').select('*').eq('user_id', user.id),
+    const { data: memberData, error: memberError } = await supabase
+      .from('family_members')
+      .select('*')
+      .order('created_at');
+
+    if (memberError) return show(memberError.message);
+
+    const loadedMembers = memberData || [];
+    const myMember = loadedMembers.find((m) => m.auth_user_id === user.id) || null;
+    const childMode = Boolean(myMember);
+    const ownerId = childMode ? myMember.user_id : user.id;
+
+    const [t, tm] = await Promise.all([
+      supabase.from('tasks').select('*').eq('user_id', ownerId).order('date'),
+      supabase.from('task_members').select('*').eq('user_id', ownerId),
     ]);
-    if (m.error) return show(m.error.message);
+
     if (t.error) return show(t.error.message);
     if (tm.error) return show(tm.error.message);
-    setMembers(m.data || []);
+
+    setMembers(loadedMembers);
     setTasks(t.data || []);
     setTaskMembers(tm.data || []);
+    setCurrentMember(myMember);
+    setIsChildUser(childMode);
+
+    if (childMode) {
+      setViewMode('personal');
+      setActiveMemberId(myMember.id);
+      setSelectedMembers([myMember.id]);
+    }
   };
 
   const membersWithColors = useMemo(() => (members || []).map((m) => ({ ...m, color: m.color || getColor(m.name) })), [members]);
@@ -144,16 +176,20 @@ export default function FamilyApp({ user }) {
 
   const save = async () => {
     if (!title.trim()) return show('ใส่ชื่องาน');
-    if (!selectedMembers.length) return show('เลือกสมาชิก');
+
+    const effectiveOwnerId = isChildUser && currentMember ? currentMember.user_id : user.id;
+    const effectiveSelectedMembers = isChildUser && currentMember ? [currentMember.id] : selectedMembers;
+
+    if (!effectiveSelectedMembers.length) return show('เลือกสมาชิก');
     if (eventType === 'trip' && endDate < startDate) return show('วันสิ้นสุดต้องไม่ก่อนวันเริ่มต้น');
 
     if (editing) {
       const { error } = await supabase.from('tasks').update({
         title: title.trim(), date, start_time: start, end_time: end, location_url: locationUrl.trim(), zoom_url: zoomUrl.trim(), zoom_username: zoomUser.trim(), zoom_passcode: zoomPass.trim(), note: note.trim(), start_date: eventType === 'trip' ? startDate : date, end_date: eventType === 'trip' ? endDate : date, is_all_day: isAllDay, event_type: eventType
-      }).eq('id', editing.id).eq('user_id', user.id);
+      }).eq('id', editing.id).eq('user_id', effectiveOwnerId);
       if (error) return show(error.message);
-      await supabase.from('task_members').delete().eq('task_id', editing.id).eq('user_id', user.id);
-      const r = await supabase.from('task_members').insert(selectedMembers.map((member_id) => ({ task_id: editing.id, member_id, user_id: user.id })));
+      await supabase.from('task_members').delete().eq('task_id', editing.id).eq('user_id', effectiveOwnerId);
+      const r = await supabase.from('task_members').insert(effectiveSelectedMembers.map((member_id) => ({ task_id: editing.id, member_id, user_id: effectiveOwnerId })));
       if (r.error) return show(r.error.message);
       show('แก้ไขแล้ว'); resetForm(); setShowForm(false); load(); return;
     }
@@ -163,7 +199,7 @@ export default function FamilyApp({ user }) {
         title: title.trim(), date: taskDate, start_time: start, end_time: end, location_url: locationUrl.trim(), zoom_url: zoomUrl.trim(), zoom_username: zoomUser.trim(), zoom_passcode: zoomPass.trim(), note: note.trim(), task_level: 'main', user_id: user.id, start_date: eventType === 'trip' ? startDate : taskDate, end_date: eventType === 'trip' ? endDate : taskDate, is_all_day: isAllDay, event_type: eventType
       }).select().single();
       if (error) throw error;
-      const r = await supabase.from('task_members').insert(selectedMembers.map((member_id) => ({ task_id: data.id, member_id, user_id: user.id })));
+      const r = await supabase.from('task_members').insert(effectiveSelectedMembers.map((member_id) => ({ task_id: data.id, member_id, user_id: effectiveOwnerId })));
       if (r.error) throw r.error;
     };
 
@@ -186,7 +222,8 @@ export default function FamilyApp({ user }) {
 
   const del = async (id) => {
     if (!confirm('ลบรายการนี้?')) return;
-    const { error } = await supabase.from('tasks').delete().eq('id', id).eq('user_id', user.id);
+    const ownerId = isChildUser && currentMember ? currentMember.user_id : user.id;
+    const { error } = await supabase.from('tasks').delete().eq('id', id).eq('user_id', ownerId);
     if (error) return show(error.message);
     show('ลบแล้ว'); load();
   };
@@ -201,7 +238,7 @@ export default function FamilyApp({ user }) {
     const parent = mainTasks.find((t) => t.id === subParentId);
     if (!parent) return show('ไม่พบงานหลัก');
     const { error } = await supabase.from('tasks').insert({
-      user_id: user.id, title: subTitle.trim(), date: parent.date, start_time: subStart, end_time: subEnd, note: subNote.trim(), task_level: 'sub', parent_task_id: subParentId
+      user_id: isChildUser && currentMember ? currentMember.user_id : user.id, title: subTitle.trim(), date: parent.date, start_time: subStart, end_time: subEnd, note: subNote.trim(), task_level: 'sub', parent_task_id: subParentId
     });
     if (error) return show(error.message);
     show('เพิ่มงานย่อยแล้ว'); setSubTitle(''); setSubStart(''); setSubEnd(''); setSubNote(''); setShowSubForm(false); load();
@@ -219,7 +256,7 @@ export default function FamilyApp({ user }) {
     const ids = selectedSubIds.filter((id) => subTasks.some((s) => s.id === id && s.parent_task_id === parentId));
     if (!ids.length) return show('ยังไม่ได้เลือกงานย่อย');
     if (!confirm(`ลบงานย่อยที่เลือก ${ids.length} รายการ?`)) return;
-    const { error } = await supabase.from('tasks').delete().in('id', ids).eq('user_id', user.id);
+    const { error } = await supabase.from('tasks').delete().in('id', ids).eq('user_id', isChildUser && currentMember ? currentMember.user_id : user.id);
     if (error) return show(error.message);
     setSelectedSubIds((prev) => prev.filter((id) => !ids.includes(id)));
     show(`ลบงานย่อยแล้ว ${ids.length} รายการ`); load();
@@ -293,6 +330,78 @@ export default function FamilyApp({ user }) {
     load();
   };
 
+
+  const urlBase64ToUint8Array = (base64String) => {
+    const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const rawData = window.atob(base64);
+    return Uint8Array.from([...rawData].map((char) => char.charCodeAt(0)));
+  };
+
+  const enablePushNotifications = async () => {
+    try {
+      if (!('serviceWorker' in navigator)) {
+        show('อุปกรณ์นี้ไม่รองรับ Service Worker');
+        return;
+      }
+
+      if (!('PushManager' in window)) {
+        show('อุปกรณ์นี้ไม่รองรับ Push Notification');
+        return;
+      }
+
+      const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
+
+      if (!vapidPublicKey) {
+        show('ยังไม่ได้ตั้งค่า VITE_VAPID_PUBLIC_KEY');
+        return;
+      }
+
+      const permission = await Notification.requestPermission();
+
+      if (permission !== 'granted') {
+        show('ยังไม่ได้อนุญาตแจ้งเตือน');
+        return;
+      }
+
+      const registration = await navigator.serviceWorker.register('/custom-sw.js');
+      await navigator.serviceWorker.ready;
+
+      let subscription = await registration.pushManager.getSubscription();
+
+      if (!subscription) {
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
+        });
+      }
+
+      const json = subscription.toJSON();
+
+      const { error } = await supabase
+        .from('push_subscriptions')
+        .upsert({
+          user_id: user.id,
+          endpoint: json.endpoint,
+          p256dh: json.keys?.p256dh,
+          auth: json.keys?.auth,
+          user_agent: navigator.userAgent,
+        }, {
+          onConflict: 'user_id,endpoint',
+        });
+
+      if (error) {
+        show(error.message);
+        return;
+      }
+
+      setPushStatus('เปิดแจ้งเตือนแล้ว');
+      show('เปิดแจ้งเตือนแล้ว');
+    } catch (e) {
+      show(e.message || 'เปิดแจ้งเตือนไม่สำเร็จ');
+    }
+  };
+
   return (
     <div style={styles.page}>
       <div style={styles.calendarCard}>
@@ -323,18 +432,28 @@ export default function FamilyApp({ user }) {
 
       <div style={styles.panel}>
         <div style={styles.toolbar}>
-          <button style={viewMode === 'all' ? styles.activeTab : styles.tab} onClick={() => { setViewMode('all'); setActiveMemberId('all'); }}>รวม</button>
+          {!isChildUser && (
+            <button style={viewMode === 'all' ? styles.activeTab : styles.tab} onClick={() => { setViewMode('all'); setActiveMemberId('all'); }}>รวม</button>
+          )}
           <button style={viewMode === 'personal' ? styles.activeTab : styles.tab} onClick={() => { setViewMode('personal'); if (activeMemberId === 'all' && membersWithColors[0]) setActiveMemberId(membersWithColors[0].id); }}>รายคน</button>
-          {viewMode === 'personal' && membersWithColors.map((m) => (
+          {viewMode === 'personal' && membersWithColors.filter((m) => !isChildUser || m.id === currentMember?.id).map((m) => (
             <button key={m.id} onClick={() => setActiveMemberId(m.id)} style={{ ...styles.memberPill, borderColor: m.color, background: activeMemberId === m.id ? m.color : '#fff', color: activeMemberId === m.id ? '#fff' : m.color }}>{m.name}</button>
           ))}
           <button style={styles.addBtn} onClick={() => setShowForm(!showForm)}>{showForm ? 'ปิดฟอร์ม' : '+ เพิ่มงาน'}</button>
-          <button style={styles.memberManageBtn} onClick={() => setShowMemberManager(!showMemberManager)}>
-            {showMemberManager ? 'ปิดสมาชิก' : 'จัดการสมาชิก'}
-          </button>
+          {!isChildUser && (
+            <button style={styles.memberManageBtn} onClick={() => setShowMemberManager(!showMemberManager)}>
+              {showMemberManager ? 'ปิดสมาชิก' : 'จัดการสมาชิก'}
+            </button>
+          )}
         </div>
 
-        {showMemberManager && (
+        {pushStatus && <div style={styles.pushStatus}>{pushStatus}</div>}
+
+        {isChildUser && currentMember && (
+          <div style={styles.childNotice}>โหมดลูก: {currentMember.name} — เห็นและแก้ไขเฉพาะงานของตัวเอง</div>
+        )}
+
+        {showMemberManager && !isChildUser && (
           <div style={styles.memberManager}>
             <b>จัดการสมาชิก</b>
 
@@ -366,7 +485,7 @@ export default function FamilyApp({ user }) {
             </div>
 
             <div style={styles.memberList}>
-              {membersWithColors.map((m) => (
+              {membersWithColors.filter((m) => !isChildUser || m.id === currentMember?.id).map((m) => (
                 <div key={m.id} style={styles.memberRow}>
                   <div style={{ ...styles.memberAvatar, background: m.color }}>
                     {m.avatar_url ? (
@@ -525,5 +644,10 @@ const styles = {
   tripDateBox: { display: 'grid', gridTemplateColumns: '80px 1fr 90px 1fr', gap: 6, alignItems: 'center', background: '#F5F7F3', padding: 8, borderRadius: 8 },
   smallLabel: { fontSize: 12, color: '#4C554F', fontWeight: 700 },
   checkboxLine: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, gridColumn: '1 / -1' },
+
+  childNotice: { background: '#E8F5E9', border: '1px solid #A5D6A7', color: '#2E7D32', padding: 8, borderRadius: 8, marginBottom: 8, fontWeight: 700 },
+
+  notifyBtn: { background: '#fff8e1', color: '#8A5A00', border: '1px solid #FFE082', borderRadius: 8, padding: '8px 12px', cursor: 'pointer', fontWeight: 700 },
+  pushStatus: { background: '#E8F5E9', border: '1px solid #A5D6A7', color: '#2E7D32', padding: 8, borderRadius: 8, marginBottom: 8, fontWeight: 700 },
 
 };
