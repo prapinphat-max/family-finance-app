@@ -37,6 +37,11 @@ export default function FamilyApp({ user }) {
   const [zoomPass, setZoomPass] = useState('');
   const [note, setNote] = useState('');
 
+  const [eventType, setEventType] = useState('normal');
+  const [startDate, setStartDate] = useState(todayISO());
+  const [endDate, setEndDate] = useState(todayISO());
+  const [isAllDay, setIsAllDay] = useState(false);
+
   const [repeat, setRepeat] = useState(false);
   const [repeatEnd, setRepeatEnd] = useState('');
   const [weekdays, setWeekdays] = useState([1, 2, 3, 4, 5]);
@@ -87,7 +92,7 @@ export default function FamilyApp({ user }) {
   const getSubs = (parentId) => subTasks.filter((s) => s.parent_task_id === parentId).sort((a, b) => String(a.start_time || '').localeCompare(String(b.start_time || '')));
 
   const visibleMainTasks = useMemo(() => mainTasks.filter((t) => viewMode === 'all' || isTaskForMember(t, activeMemberId)), [mainTasks, viewMode, activeMemberId, taskMembers]);
-  const dayTasks = useMemo(() => visibleMainTasks.filter((t) => t.date === selectedDate).sort((a, b) => String(a.start_time || '').localeCompare(String(b.start_time || ''))), [visibleMainTasks, selectedDate]);
+  const dayTasks = useMemo(() => visibleMainTasks.filter((t) => isTaskOnDate(t, selectedDate)).sort((a, b) => String(a.start_time || '').localeCompare(String(b.start_time || ''))), [visibleMainTasks, selectedDate]);
 
   const calendar = useMemo(() => {
     const [y, m] = month.split('-').map(Number);
@@ -97,7 +102,7 @@ export default function FamilyApp({ user }) {
     for (let i = 0; i < first.getDay(); i++) arr.push({ empty: true, tasks: [] });
     for (let d = 1; d <= last.getDate(); d++) {
       const iso = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-      arr.push({ empty: false, day: d, date: iso, tasks: visibleMainTasks.filter((t) => t.date === iso).sort((a, b) => String(a.start_time || '').localeCompare(String(b.start_time || ''))) });
+      arr.push({ empty: false, day: d, date: iso, tasks: visibleMainTasks.filter((t) => isTaskOnDate(t, iso)).sort((a, b) => String(a.start_time || '').localeCompare(String(b.start_time || ''))) });
     }
     return arr;
   }, [month, visibleMainTasks]);
@@ -124,16 +129,17 @@ export default function FamilyApp({ user }) {
 
   const resetForm = () => {
     setEditing(null); setTitle(''); setDate(todayISO()); setStart(''); setEnd(''); setLocationUrl(''); setZoomUrl(''); setZoomUser(''); setZoomPass(''); setNote('');
-    setSelectedMembers([]); setRepeat(false); setRepeatEnd(''); setSkip('');
+    setSelectedMembers([]); setRepeat(false); setRepeatEnd(''); setSkip(''); setEventType('normal'); setStartDate(todayISO()); setEndDate(todayISO()); setIsAllDay(false);
   };
 
   const save = async () => {
     if (!title.trim()) return show('ใส่ชื่องาน');
     if (!selectedMembers.length) return show('เลือกสมาชิก');
+    if (eventType === 'trip' && endDate < startDate) return show('วันสิ้นสุดต้องไม่ก่อนวันเริ่มต้น');
 
     if (editing) {
       const { error } = await supabase.from('tasks').update({
-        title: title.trim(), date, start_time: start, end_time: end, location_url: locationUrl.trim(), zoom_url: zoomUrl.trim(), zoom_username: zoomUser.trim(), zoom_passcode: zoomPass.trim(), note: note.trim()
+        title: title.trim(), date, start_time: start, end_time: end, location_url: locationUrl.trim(), zoom_url: zoomUrl.trim(), zoom_username: zoomUser.trim(), zoom_passcode: zoomPass.trim(), note: note.trim(), start_date: eventType === 'trip' ? startDate : date, end_date: eventType === 'trip' ? endDate : date, is_all_day: isAllDay, event_type: eventType
       }).eq('id', editing.id).eq('user_id', user.id);
       if (error) return show(error.message);
       await supabase.from('task_members').delete().eq('task_id', editing.id).eq('user_id', user.id);
@@ -144,7 +150,7 @@ export default function FamilyApp({ user }) {
 
     const makeOne = async (taskDate) => {
       const { data, error } = await supabase.from('tasks').insert({
-        title: title.trim(), date: taskDate, start_time: start, end_time: end, location_url: locationUrl.trim(), zoom_url: zoomUrl.trim(), zoom_username: zoomUser.trim(), zoom_passcode: zoomPass.trim(), note: note.trim(), task_level: 'main', user_id: user.id
+        title: title.trim(), date: taskDate, start_time: start, end_time: end, location_url: locationUrl.trim(), zoom_url: zoomUrl.trim(), zoom_username: zoomUser.trim(), zoom_passcode: zoomPass.trim(), note: note.trim(), task_level: 'main', user_id: user.id, start_date: eventType === 'trip' ? startDate : taskDate, end_date: eventType === 'trip' ? endDate : taskDate, is_all_day: isAllDay, event_type: eventType
       }).select().single();
       if (error) throw error;
       const r = await supabase.from('task_members').insert(selectedMembers.map((member_id) => ({ task_id: data.id, member_id, user_id: user.id })));
@@ -152,7 +158,7 @@ export default function FamilyApp({ user }) {
     };
 
     try {
-      if (repeat) {
+      if (repeat && eventType !== 'trip') {
         if (!repeatEnd) return show('เลือกวันที่สิ้นสุด');
         const skipSet = new Set(skip.split(',').map((x) => x.trim()).filter(Boolean));
         const startDate = new Date(date + 'T00:00:00');
@@ -295,7 +301,7 @@ export default function FamilyApp({ user }) {
                 const color = ms.length === 1 ? ms[0].color : '#263238';
                 return (
                   <div key={t.id} style={{ ...styles.event, background: color }}>
-                    <div>{t.start_time || '--:--'}-{t.end_time || '--:--'} {t.title}</div>
+                    <div>{t.event_type === 'trip' ? '✈️' : ''}{t.is_all_day ? 'ทั้งวัน' : `${t.start_time || '--:--'}-${t.end_time || '--:--'}`} {t.title}</div>
                     <small>{ms.map((m) => m.name).join(', ')}</small>
                   </div>
                 );
@@ -375,7 +381,24 @@ export default function FamilyApp({ user }) {
           <div style={styles.form}>
             <b>{editing ? 'แก้ไขงาน' : 'เพิ่มงาน'}</b>
             <input style={styles.input} placeholder="ชื่อ" value={title} onChange={(e) => setTitle(e.target.value)} />
-            <input style={styles.input} type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+            <select style={styles.input} value={eventType} onChange={(e) => setEventType(e.target.value)}>
+              <option value="normal">งานทั่วไป / เรียน / รับส่ง</option>
+              <option value="trip">Trip หลายวัน</option>
+            </select>
+            {eventType === 'normal' ? (
+              <input style={styles.input} type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+            ) : (
+              <div style={styles.tripDateBox}>
+                <label style={styles.smallLabel}>เริ่ม Trip</label>
+                <input style={styles.input} type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setDate(e.target.value); }} />
+                <label style={styles.smallLabel}>สิ้นสุด Trip</label>
+                <input style={styles.input} type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+                <label style={styles.checkboxLine}>
+                  <input type="checkbox" checked={isAllDay} onChange={(e) => setIsAllDay(e.target.checked)} />
+                  ทั้งวัน / หลายวัน
+                </label>
+              </div>
+            )}
             <input style={styles.input} type="time" value={start} onChange={(e) => setStart(e.target.value)} />
             <input style={styles.input} type="time" value={end} onChange={(e) => setEnd(e.target.value)} />
             <input style={styles.input} placeholder="Map" value={locationUrl} onChange={(e) => setLocationUrl(e.target.value)} />
@@ -386,7 +409,7 @@ export default function FamilyApp({ user }) {
             <div style={styles.memberSelect}>{membersWithColors.map((m) => (
               <label key={m.id} style={{ ...styles.checkPill, borderColor: m.color, color: m.color }}><input type="checkbox" checked={selectedMembers.includes(m.id)} onChange={() => toggleMember(m.id)} />{m.name}</label>
             ))}</div>
-            {!editing && (
+            {!editing && eventType !== 'trip' && (
               <>
                 <label><input type="checkbox" checked={repeat} onChange={(e) => setRepeat(e.target.checked)} /> ตารางซ้ำ</label>
                 {repeat && <div style={styles.repeatBox}>
@@ -408,7 +431,10 @@ export default function FamilyApp({ user }) {
           const subs = getSubs(t.id);
           return (
             <div key={t.id} style={{ ...styles.detailCard, borderLeftColor: color }}>
-              <div style={styles.detailTop}><div><b>{t.start_time || '--:--'}-{t.end_time || '--:--'} {t.title}</b><div style={styles.nameRow}>{ms.map((m) => <span key={m.id} style={{ ...styles.nameChip, background: m.color }}>{m.name}</span>)}</div></div><div><button onClick={() => startEdit(t)}>แก้ไข</button><button style={styles.deleteBtn} onClick={() => del(t.id)}>ลบ</button></div></div>
+              <div style={styles.detailTop}><div><b>{t.event_type === 'trip' ? '✈️' : ''}{t.is_all_day ? 'ทั้งวัน' : `${t.start_time || '--:--'}-${t.end_time || '--:--'}`} {t.title}</b><div style={styles.nameRow}>{ms.map((m) => <span key={m.id} style={{ ...styles.nameChip, background: m.color }}>{m.name}</span>)}</div></div><div><button onClick={() => startEdit(t)}>แก้ไข</button><button style={styles.deleteBtn} onClick={() => del(t.id)}>ลบ</button></div></div>
+              {t.event_type === 'trip' && (
+                <div style={styles.note}>Trip: {getTaskStartDate(t)} ถึง {getTaskEndDate(t)}</div>
+              )}
               {t.location_url && <div><a href={t.location_url} target="_blank" rel="noreferrer">📍 Google Maps</a></div>}
               {t.zoom_url && <div><a href={t.zoom_url} target="_blank" rel="noreferrer">🎥 Zoom</a></div>}
               {t.zoom_username && <div style={styles.note}>User/ID: {t.zoom_username}</div>}
@@ -485,5 +511,9 @@ const styles = {
   memberAvatar: { width: 34, height: 34, borderRadius: 999, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, overflow: 'hidden' },
   avatarImg: { width: '100%', height: '100%', objectFit: 'cover' },
   memberColorText: { color: '#7A837C', fontSize: 11 },
+
+  tripDateBox: { display: 'grid', gridTemplateColumns: '80px 1fr 90px 1fr', gap: 6, alignItems: 'center', background: '#F5F7F3', padding: 8, borderRadius: 8 },
+  smallLabel: { fontSize: 12, color: '#4C554F', fontWeight: 700 },
+  checkboxLine: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, gridColumn: '1 / -1' },
 
 };
