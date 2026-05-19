@@ -1,6 +1,4 @@
-# App.jsx
 
-```jsx
 import React, { useState } from 'react';
 import { useAuth, supabase } from './useSupabase';
 import FamilyApp from './components/FamilyApp';
