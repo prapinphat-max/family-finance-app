@@ -392,11 +392,11 @@ const enablePushNotifications = async () => {
 >
   🔔 เปิดแจ้งเตือน
 </button>
-          {!isChildUser && (
+          (
             <button style={styles.memberManageBtn} onClick={() => setShowMemberManager(!showMemberManager)}>
               {showMemberManager ? 'ปิดสมาชิก' : 'จัดการสมาชิก'}
             </button>
-          )}
+          )
         </div>
 
         {isChildUser && currentMember && (
