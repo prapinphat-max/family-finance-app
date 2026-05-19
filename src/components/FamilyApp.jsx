@@ -55,7 +55,6 @@ export default function FamilyApp({ user }) {
   const [showSubForm, setShowSubForm] = useState(false);
   const [selectedSubIds, setSelectedSubIds] = useState([]);
   const [message, setMessage] = useState('');
-  const [pushStatus, setPushStatus] = useState('');
 
   const [currentMember, setCurrentMember] = useState(null);
   const [isChildUser, setIsChildUser] = useState(false);
@@ -331,75 +330,9 @@ export default function FamilyApp({ user }) {
   };
 
 
-  const urlBase64ToUint8Array = (base64String) => {
-    const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-    const rawData = window.atob(base64);
-    return Uint8Array.from([...rawData].map((char) => char.charCodeAt(0)));
-  };
-
-  const enablePushNotifications = async () => {
-    try {
-      if (!('serviceWorker' in navigator)) {
-        show('อุปกรณ์นี้ไม่รองรับ Service Worker');
-        return;
-      }
-
-      if (!('PushManager' in window)) {
-        show('อุปกรณ์นี้ไม่รองรับ Push Notification');
-        return;
-      }
-
-      const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
-
-      if (!vapidPublicKey) {
-        show('ยังไม่ได้ตั้งค่า VITE_VAPID_PUBLIC_KEY');
-        return;
-      }
-
-      const permission = await Notification.requestPermission();
-
-      if (permission !== 'granted') {
-        show('ยังไม่ได้อนุญาตแจ้งเตือน');
-        return;
-      }
-
-      const registration = await navigator.serviceWorker.register('/custom-sw.js');
-      await navigator.serviceWorker.ready;
-
-      let subscription = await registration.pushManager.getSubscription();
-
-      if (!subscription) {
-        subscription = await registration.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
-        });
-      }
-
-      const json = subscription.toJSON();
-
-      const { error } = await supabase
-        .from('push_subscriptions')
-        .upsert({
-          user_id: user.id,
-          endpoint: json.endpoint,
-          p256dh: json.keys?.p256dh,
-          auth: json.keys?.auth,
-          user_agent: navigator.userAgent,
-        }, {
-          onConflict: 'user_id,endpoint',
-        });
-
-      if (error) {
-        show(error.message);
-        return;
-      }
-
-      setPushStatus('เปิดแจ้งเตือนแล้ว');
-      show('เปิดแจ้งเตือนแล้ว');
-    } catch (e) {
-      show(e.message || 'เปิดแจ้งเตือนไม่สำเร็จ');
-    }
+  const canEditTask = (task) => {
+    if (!isChildUser || !currentMember) return true;
+    return (taskMembers || []).some((tm) => tm.task_id === task.id && tm.member_id === currentMember.id);
   };
 
   return (
@@ -432,9 +365,7 @@ export default function FamilyApp({ user }) {
 
       <div style={styles.panel}>
         <div style={styles.toolbar}>
-          {!isChildUser && (
-            <button style={viewMode === 'all' ? styles.activeTab : styles.tab} onClick={() => { setViewMode('all'); setActiveMemberId('all'); }}>รวม</button>
-          )}
+          <button style={viewMode === 'all' ? styles.activeTab : styles.tab} onClick={() => { setViewMode('all'); setActiveMemberId('all'); }}>รวม</button>
           <button style={viewMode === 'personal' ? styles.activeTab : styles.tab} onClick={() => { setViewMode('personal'); if (activeMemberId === 'all' && membersWithColors[0]) setActiveMemberId(membersWithColors[0].id); }}>รายคน</button>
           {viewMode === 'personal' && membersWithColors.filter((m) => !isChildUser || m.id === currentMember?.id).map((m) => (
             <button key={m.id} onClick={() => setActiveMemberId(m.id)} style={{ ...styles.memberPill, borderColor: m.color, background: activeMemberId === m.id ? m.color : '#fff', color: activeMemberId === m.id ? '#fff' : m.color }}>{m.name}</button>
@@ -447,10 +378,8 @@ export default function FamilyApp({ user }) {
           )}
         </div>
 
-        {pushStatus && <div style={styles.pushStatus}>{pushStatus}</div>}
-
         {isChildUser && currentMember && (
-          <div style={styles.childNotice}>โหมดลูก: {currentMember.name} — เห็นและแก้ไขเฉพาะงานของตัวเอง</div>
+          <div style={styles.childNotice}>โหมดลูก: {currentMember.name} — ดูรวมได้ และแก้ไขเฉพาะงานของตัวเอง</div>
         )}
 
         {showMemberManager && !isChildUser && (
@@ -560,7 +489,14 @@ export default function FamilyApp({ user }) {
           const subs = getSubs(t.id);
           return (
             <div key={t.id} style={{ ...styles.detailCard, borderLeftColor: color }}>
-              <div style={styles.detailTop}><div><b>{t.event_type === 'trip' ? '✈️' : ''}{t.is_all_day ? 'ทั้งวัน' : `${t.start_time || '--:--'}-${t.end_time || '--:--'}`} {t.title}</b><div style={styles.nameRow}>{ms.map((m) => <span key={m.id} style={{ ...styles.nameChip, background: m.color }}>{m.name}</span>)}</div></div><div><button onClick={() => startEdit(t)}>แก้ไข</button><button style={styles.deleteBtn} onClick={() => del(t.id)}>ลบ</button></div></div>
+              <div style={styles.detailTop}><div><b>{t.event_type === 'trip' ? '✈️' : ''}{t.is_all_day ? 'ทั้งวัน' : `${t.start_time || '--:--'}-${t.end_time || '--:--'}`} {t.title}</b><div style={styles.nameRow}>{ms.map((m) => <span key={m.id} style={{ ...styles.nameChip, background: m.color }}>{m.name}</span>)}</div></div><div>
+                    {canEditTask(t) && (
+                      <>
+                        <button onClick={() => startEdit(t)}>แก้ไข</button>
+                        <button style={styles.deleteBtn} onClick={() => del(t.id)}>ลบ</button>
+                      </>
+                    )}
+                  </div></div>
               {t.event_type === 'trip' && (
                 <div style={styles.note}>Trip: {getTaskStartDate(t)} ถึง {getTaskEndDate(t)}</div>
               )}
@@ -572,11 +508,13 @@ export default function FamilyApp({ user }) {
 
               {viewMode === 'personal' && (
                 <div style={styles.subBox}>
-                  <div style={styles.subHeaderRow}><b>ตารางย่อย / วิชา</b>{subs.length > 0 && <div style={styles.subBulkActions}><label style={styles.bulkLabel}><input type="checkbox" checked={subs.length > 0 && subs.every((s) => selectedSubIds.includes(s.id))} onChange={() => toggleAllSubs(subs)} />เลือกทั้งหมด</label><button style={styles.bulkDeleteBtn} onClick={() => deleteSelectedSubs(t.id)}>ลบที่เลือก</button></div>}</div>
+                  <div style={styles.subHeaderRow}><b>ตารางย่อย / วิชา</b>{canEditTask(t) && subs.length > 0 && <div style={styles.subBulkActions}><label style={styles.bulkLabel}><input type="checkbox" checked={subs.length > 0 && subs.every((s) => selectedSubIds.includes(s.id))} onChange={() => toggleAllSubs(subs)} />เลือกทั้งหมด</label><button style={styles.bulkDeleteBtn} onClick={() => deleteSelectedSubs(t.id)}>ลบที่เลือก</button></div>}</div>
                   {subs.length === 0 ? <div style={styles.empty}>ยังไม่มีงานย่อย</div> : subs.map((s) => (
                     <div key={s.id} style={styles.subItem}><label style={styles.subCheckRow}><input type="checkbox" checked={selectedSubIds.includes(s.id)} onChange={() => toggleSubSelect(s.id)} /><span><b>{s.start_time || '--:--'}-{s.end_time || '--:--'}</b> {s.title}{s.note && <div style={styles.note}>{s.note}</div>}</span></label></div>
                   ))}
-                  <button style={styles.addSubBtn} onClick={() => openSubForm(t)}>+ เพิ่มงานย่อย / วิชาใต้รายการนี้</button>
+                  {canEditTask(t) && (
+                    <button style={styles.addSubBtn} onClick={() => openSubForm(t)}>+ เพิ่มงานย่อย / วิชาใต้รายการนี้</button>
+                  )}
                   {showSubForm && subParentId === t.id && <div style={styles.subForm}><input style={styles.input} placeholder="ชื่อวิชา/งานย่อย" value={subTitle} onChange={(e) => setSubTitle(e.target.value)} /><div style={{ display: 'flex', gap: 6 }}><input style={styles.input} type="time" value={subStart} onChange={(e) => setSubStart(e.target.value)} /><input style={styles.input} type="time" value={subEnd} onChange={(e) => setSubEnd(e.target.value)} /></div><input style={styles.input} placeholder="หมายเหตุของงานย่อย" value={subNote} onChange={(e) => setSubNote(e.target.value)} /><div style={{ display: 'flex', gap: 6 }}><button style={styles.saveBtn} onClick={addSubTask}>บันทึกงานย่อย</button><button style={styles.cancelBtn} onClick={() => setShowSubForm(false)}>ยกเลิก</button></div></div>}
                 </div>
               )}
@@ -646,8 +584,5 @@ const styles = {
   checkboxLine: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, gridColumn: '1 / -1' },
 
   childNotice: { background: '#E8F5E9', border: '1px solid #A5D6A7', color: '#2E7D32', padding: 8, borderRadius: 8, marginBottom: 8, fontWeight: 700 },
-
-  notifyBtn: { background: '#fff8e1', color: '#8A5A00', border: '1px solid #FFE082', borderRadius: 8, padding: '8px 12px', cursor: 'pointer', fontWeight: 700 },
-  pushStatus: { background: '#E8F5E9', border: '1px solid #A5D6A7', color: '#2E7D32', padding: 8, borderRadius: 8, marginBottom: 8, fontWeight: 700 },
 
 };
