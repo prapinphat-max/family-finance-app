@@ -2,13 +2,28 @@ import React, { useState } from 'react';
 import { useAuth, supabase } from './useSupabase';
 import FamilyApp from './components/FamilyApp';
 
+const FAMILY_LOGIN_DOMAIN = 'familyapp.test';
+
+function normalizeLoginId(value) {
+  const v = String(value || '').trim().toLowerCase();
+
+  if (!v) return '';
+
+  return v.includes('@')
+    ? v
+    : `${v}@${FAMILY_LOGIN_DOMAIN}`;
+}
+
 export default function App() {
   const { user, loading, login, logout } = useAuth();
-  const [email, setEmail] = useState('');
+
+  const [loginId, setLoginId] = useState('');
   const [password, setPassword] = useState('');
   const [message, setMessage] = useState('');
 
   const handleLogin = async () => {
+    const email = normalizeLoginId(loginId);
+
     const result = await login(email, password);
 
     if (!result.success) {
@@ -38,7 +53,7 @@ export default function App() {
 
   if (!user) {
     return (
-      <div style={{ padding: 30 }}>
+      <div style={{ padding: 30, maxWidth: 420 }}>
         <h2>Family Calendar Login</h2>
 
         <button
@@ -47,7 +62,7 @@ export default function App() {
             padding: 12,
             marginBottom: 18,
             display: 'block',
-            width: 300,
+            width: '100%',
             background: '#fff',
             border: '1px solid #ccc',
             borderRadius: 8,
@@ -58,13 +73,21 @@ export default function App() {
           Continue with Google
         </button>
 
-        <div style={{ marginBottom: 12, color: '#777' }}>หรือ login ด้วย email/password</div>
+        <div style={{ marginBottom: 12, color: '#777' }}>
+          หรือ login ด้วย username/password
+        </div>
 
         <input
-          placeholder="Email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          style={{ padding: 10, marginBottom: 10, display: 'block', width: 300 }}
+          placeholder="Username หรือ Email"
+          value={loginId}
+          onChange={(e) => setLoginId(e.target.value)}
+          style={{
+            padding: 10,
+            marginBottom: 10,
+            display: 'block',
+            width: '100%',
+            boxSizing: 'border-box',
+          }}
         />
 
         <input
@@ -72,12 +95,24 @@ export default function App() {
           placeholder="Password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          style={{ padding: 10, marginBottom: 10, display: 'block', width: 300 }}
+          style={{
+            padding: 10,
+            marginBottom: 10,
+            display: 'block',
+            width: '100%',
+            boxSizing: 'border-box',
+          }}
         />
 
-        <button onClick={handleLogin}>Login</button>
+        <button onClick={handleLogin}>
+          Login
+        </button>
 
-        {message && <div style={{ marginTop: 12, color: 'red' }}>{message}</div>}
+        {message && (
+          <div style={{ marginTop: 12, color: 'red' }}>
+            {message}
+          </div>
+        )}
       </div>
     );
   }
@@ -86,7 +121,11 @@ export default function App() {
     <div>
       <div style={{ padding: 16, borderBottom: '1px solid #ddd' }}>
         Login: {user.email}
-        <button onClick={logout} style={{ marginLeft: 12 }}>
+
+        <button
+          onClick={logout}
+          style={{ marginLeft: 12 }}
+        >
           Logout
         </button>
       </div>
