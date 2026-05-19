@@ -2,7 +2,9 @@
    Service Worker สำหรับรับ Web Push Notification
    ให้วางไฟล์นี้ใน public/custom-sw.js
 */
-
+self.addEventListener('push', function (event) {
+  console.log('Push Received');
+});
 self.addEventListener('push', (event) => {
   let data = {};
 

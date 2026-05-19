@@ -334,7 +334,22 @@ export default function FamilyApp({ user }) {
     if (!isChildUser || !currentMember) return true;
     return (taskMembers || []).some((tm) => tm.task_id === task.id && tm.member_id === currentMember.id);
   };
+const enablePushNotifications = async () => {
+  try {
+    const permission = await Notification.requestPermission();
 
+    if (permission !== 'granted') {
+      alert('ยังไม่ได้อนุญาตแจ้งเตือน');
+      return;
+    }
+
+    await navigator.serviceWorker.register('/custom-sw.js');
+
+    alert('เปิดแจ้งเตือนแล้ว');
+  } catch (e) {
+    alert('เปิดแจ้งเตือนไม่สำเร็จ');
+  }
+};
   return (
     <div style={styles.page}>
       <div style={styles.calendarCard}>
@@ -371,6 +386,12 @@ export default function FamilyApp({ user }) {
             <button key={m.id} onClick={() => setActiveMemberId(m.id)} style={{ ...styles.memberPill, borderColor: m.color, background: activeMemberId === m.id ? m.color : '#fff', color: activeMemberId === m.id ? '#fff' : m.color }}>{m.name}</button>
           ))}
           <button style={styles.addBtn} onClick={() => setShowForm(!showForm)}>{showForm ? 'ปิดฟอร์ม' : '+ เพิ่มงาน'}</button>
+          <button
+  style={styles.notifyBtn}
+  onClick={enablePushNotifications}
+>
+  🔔 เปิดแจ้งเตือน
+</button>
           {!isChildUser && (
             <button style={styles.memberManageBtn} onClick={() => setShowMemberManager(!showMemberManager)}>
               {showMemberManager ? 'ปิดสมาชิก' : 'จัดการสมาชิก'}
@@ -584,5 +605,13 @@ const styles = {
   checkboxLine: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, gridColumn: '1 / -1' },
 
   childNotice: { background: '#E8F5E9', border: '1px solid #A5D6A7', color: '#2E7D32', padding: 8, borderRadius: 8, marginBottom: 8, fontWeight: 700 },
-
+notifyBtn: {
+  background: '#fff8e1',
+  color: '#8A5A00',
+  border: '1px solid #FFE082',
+  borderRadius: 8,
+  padding: '8px 12px',
+  cursor: 'pointer',
+  fontWeight: 700
+},
 };
