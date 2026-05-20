@@ -739,9 +739,27 @@ const styles = {
   smallLabel: { fontSize: 12, color: '#4C554F', fontWeight: 700 },
   checkboxLine: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, gridColumn: '1 / -1' },
 
-  childNotice: { background: '#E8F5E9', border: '1px solid #A5D6A7', color: '#2E7D32', padding: 8, borderRadius: 8, marginBottom: 8, fontWeight: 700 },
+childNotice: {
+  background: '#E8F5E9',
+  border: '1px solid #A5D6A7',
+  color: '#2E7D32',
+  padding: 8,
+  borderRadius: 8,
+  marginBottom: 8,
+  fontWeight: 700
+},
 
-  subEditBtn: { border: '1px solid #90A4AE', background: '#fff', color: '#455A64', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', fontSize: 12, fontWeight: 700 },
+subEditBtn: {
+  border: '1px solid #90A4AE',
+  background: '#fff',
+  color: '#455A64',
+  borderRadius: 6,
+  padding: '4px 8px',
+  cursor: 'pointer',
+  fontSize: 12,
+  fontWeight: 700
+},
+
 notifyBtn: {
   background: '#fff8e1',
   color: '#8A5A00',
