@@ -508,6 +508,12 @@ export default function FamilyApp({ user }) {
             <button key={m.id} onClick={() => setActiveMemberId(m.id)} style={{ ...styles.memberPill, borderColor: m.color, background: activeMemberId === m.id ? m.color : '#fff', color: activeMemberId === m.id ? '#fff' : m.color }}>{m.name}</button>
           ))}
           <button style={styles.addBtn} onClick={openMainForm}>{showForm ? 'ปิดฟอร์ม' : '+ เพิ่มงาน'}</button>
+          <button
+  style={styles.notifyBtn}
+  onClick={enablePushNotifications}
+>
+  🔔 เปิดแจ้งเตือน
+</button>
           {!isChildUser && (
             <button style={styles.memberManageBtn} onClick={() => setShowMemberManager(!showMemberManager)}>
               {showMemberManager ? 'ปิดสมาชิก' : 'จัดการสมาชิก'}
@@ -736,5 +742,13 @@ const styles = {
   childNotice: { background: '#E8F5E9', border: '1px solid #A5D6A7', color: '#2E7D32', padding: 8, borderRadius: 8, marginBottom: 8, fontWeight: 700 },
 
   subEditBtn: { border: '1px solid #90A4AE', background: '#fff', color: '#455A64', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', fontSize: 12, fontWeight: 700 },
-
+notifyBtn: {
+  background: '#fff8e1',
+  color: '#8A5A00',
+  border: '1px solid #FFE082',
+  borderRadius: 8,
+  padding: '8px 12px',
+  cursor: 'pointer',
+  fontWeight: 700,
+},
 };
