@@ -1,11 +1,4 @@
-/* custom-sw.js
-   Service Worker สำหรับรับ Web Push Notification
-   ให้วางไฟล์นี้ใน public/custom-sw.js
-*/
 self.addEventListener('push', function (event) {
-  console.log('Push Received');
-});
-self.addEventListener('push', (event) => {
   let data = {};
 
   try {
@@ -30,13 +23,13 @@ self.addEventListener('push', (event) => {
   event.waitUntil(self.registration.showNotification(title, options));
 });
 
-self.addEventListener('notificationclick', (event) => {
+self.addEventListener('notificationclick', function (event) {
   event.notification.close();
 
   const targetUrl = event.notification.data?.url || '/';
 
   event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (clientList) {
       for (const client of clientList) {
         if ('focus' in client) {
           client.navigate(targetUrl);
