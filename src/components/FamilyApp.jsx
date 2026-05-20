@@ -1,6 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../useSupabase';
 
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  return Uint8Array.from([...rawData].map((char) => char.charCodeAt(0)));
+}
+
 const DAYS = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
 const MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
 
@@ -467,6 +474,23 @@ export default function FamilyApp({ user }) {
         return;
       }
 
+      if (!('serviceWorker' in navigator)) {
+        alert('ไม่รองรับ Service Worker');
+        return;
+      }
+
+      if (!('PushManager' in window)) {
+        alert('อุปกรณ์นี้ไม่รองรับ Push Notification');
+        return;
+      }
+
+      const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
+
+      if (!vapidPublicKey) {
+        alert('ยังไม่ได้ตั้งค่า VITE_VAPID_PUBLIC_KEY');
+        return;
+      }
+
       const permission = await Notification.requestPermission();
 
       if (permission !== 'granted') {
@@ -474,14 +498,42 @@ export default function FamilyApp({ user }) {
         return;
       }
 
-      if ('serviceWorker' in navigator) {
-        await navigator.serviceWorker.register('/custom-sw.js');
+      const registration = await navigator.serviceWorker.register('/custom-sw.js');
+      await navigator.serviceWorker.ready;
+
+      let subscription = await registration.pushManager.getSubscription();
+
+      if (!subscription) {
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
+        });
       }
 
-      alert('เปิดแจ้งเตือนแล้ว');
+      const json = subscription.toJSON();
+
+      const { error } = await supabase
+        .from('push_subscriptions')
+        .upsert({
+          user_id: user.id,
+          endpoint: json.endpoint,
+          p256dh: json.keys?.p256dh,
+          auth: json.keys?.auth,
+          user_agent: navigator.userAgent,
+        }, {
+          onConflict: 'user_id,endpoint',
+        });
+
+      if (error) {
+        console.error(error);
+        alert(error.message);
+        return;
+      }
+
+      alert('เปิดแจ้งเตือนสำเร็จ 🎉');
     } catch (e) {
       console.error(e);
-      alert('เปิดแจ้งเตือนไม่สำเร็จ');
+      alert(e.message || 'เปิดแจ้งเตือนไม่สำเร็จ');
     }
   };
 
