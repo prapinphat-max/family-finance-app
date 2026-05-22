@@ -105,8 +105,8 @@ async function buildSummaryMessage(supabase, ownerId, targetDate, titlePrefix) {
     for (const task of memberTasks) {
       text += `• ${formatTime(task)} ${escapeHtml(task.title)}\n`;
       if (task.event_type === 'trip') text += `  ✈️ ${task.start_date || task.date} ถึง ${task.end_date || task.start_date || task.date}\n`;
-      if (task.location_url) text += `  📍 ${escapeHtml(task.location_url)}\n`;
-      if (task.zoom_url) text += `  🎥 ${escapeHtml(task.zoom_url)}\n`;
+      //if (task.location_url) text += `  📍 ${escapeHtml(task.location_url)}\n`;
+      //if (task.zoom_url) text += `  🎥 ${escapeHtml(task.zoom_url)}\n`;
       if (task.note) text += `  📝 ${escapeHtml(task.note)}\n`;
     }
   }
