@@ -24,10 +24,13 @@ function bangkokNow() {
   };
 }
 
+// สำคัญ: ห้ามใช้ new Date(`${iso}+07:00`) แล้ว getDate() เพราะ Vercel รันเป็น UTC
+// ใช้วิธีคำนวณจาก YYYY-MM-DD ตรง ๆ เพื่อไม่ให้ "พรุ่งนี้" กลายเป็น "วันนี้"
 function addDaysISO(iso, days) {
-  const d = new Date(`${iso}T00:00:00+07:00`);
-  d.setDate(d.getDate() + days);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const [y, m, d] = String(iso).split('-').map(Number);
+  const date = new Date(Date.UTC(y, m - 1, d));
+  date.setUTCDate(date.getUTCDate() + days);
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
 }
 
 function isTaskOnDate(task, isoDate) {
@@ -127,6 +130,7 @@ export default async function handler(req, res) {
 
     const supabase = createClient(supabaseUrl, serviceRoleKey);
     const now = bangkokNow();
+    const tomorrow = addDaysISO(now.date, 1);
 
     const { data: settings, error } = await supabase
       .from('notification_settings')
@@ -142,20 +146,19 @@ export default async function handler(req, res) {
       if (setting.daily_summary_enabled && (setting.daily_summary_time || '07:00') === now.time) {
         const msg = await buildSummaryMessage(supabase, setting.user_id, now.date, '📅 ตารางวันนี้');
         await sendTelegram(msg);
-        sent++;
-        logs.push({ type: 'today', user_id: setting.user_id });
+        sent += 1;
+        logs.push({ type: 'today', user_id: setting.user_id, targetDate: now.date });
       }
 
       if (setting.next_day_summary_enabled && (setting.next_day_summary_time || '21:00') === now.time) {
-        const tomorrow = addDaysISO(now.date, 1);
         const msg = await buildSummaryMessage(supabase, setting.user_id, tomorrow, '📅 ตารางพรุ่งนี้');
         await sendTelegram(msg);
-        sent++;
-        logs.push({ type: 'tomorrow', user_id: setting.user_id });
+        sent += 1;
+        logs.push({ type: 'tomorrow', user_id: setting.user_id, targetDate: tomorrow });
       }
     }
 
-    return res.status(200).json({ ok: true, now, sent, logs });
+    return res.status(200).json({ ok: true, now, tomorrow, sent, logs });
   } catch (error) {
     return res.status(500).json({ ok: false, error: error.message || String(error) });
   }
