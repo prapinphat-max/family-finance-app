@@ -503,6 +503,7 @@ export default function FamilyApp({ user }) {
             <button key={m.id} onClick={() => setActiveMemberId(m.id)} style={{ ...styles.memberPill, borderColor: m.color, background: activeMemberId === m.id ? m.color : '#fff', color: activeMemberId === m.id ? '#fff' : m.color }}>{m.name}</button>
           ))}
           <button style={styles.addBtn} onClick={() => setShowForm(!showForm)}>{showForm ? 'ปิดฟอร์ม' : '+ เพิ่มงาน'}</button>
+          <button style={styles.notifySettingsBtn} onClick={() => setShowNotifySettings(!showNotifySettings)}>⚙️ ตั้งค่าแจ้งเตือน</button>
           {!isChildUser && (
             <button style={styles.memberManageBtn} onClick={() => setShowMemberManager(!showMemberManager)}>
               {showMemberManager ? 'ปิดสมาชิก' : 'จัดการสมาชิก'}
