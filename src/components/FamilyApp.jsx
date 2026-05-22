@@ -1,13 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../useSupabase';
 
-function urlBase64ToUint8Array(base64String) {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const rawData = window.atob(base64);
-  return Uint8Array.from([...rawData].map((char) => char.charCodeAt(0)));
-}
-
 const DAYS = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
 const MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
 
@@ -63,6 +56,9 @@ export default function FamilyApp({ user }) {
   const [subEditingId, setSubEditingId] = useState(null);
   const [selectedSubIds, setSelectedSubIds] = useState([]);
   const [message, setMessage] = useState('');
+  const [showNotifySettings, setShowNotifySettings] = useState(false);
+  const [notificationSettings, setNotificationSettings] = useState(null);
+  const [notifySaving, setNotifySaving] = useState(false);
 
   const [currentMember, setCurrentMember] = useState(null);
   const [isChildUser, setIsChildUser] = useState(false);
@@ -75,15 +71,7 @@ export default function FamilyApp({ user }) {
 
   const show = (m) => { setMessage(m); setTimeout(() => setMessage(''), 3000); };
 
-  const getEffectiveOwnerId = () => {
-    return isChildUser && currentMember ? currentMember.user_id : user.id;
-  };
-
-  const getEffectiveSelectedMembers = () => {
-    return isChildUser && currentMember ? [currentMember.id] : selectedMembers;
-  };
-
-  useEffect(() => { if (user?.id) load(); }, [user?.id]);
+  useEffect(() => { if (user?.id) { load(); loadNotificationSettings(); } }, [user?.id]);
 
   useEffect(() => {
     if (isChildUser && currentMember) {
@@ -192,119 +180,52 @@ export default function FamilyApp({ user }) {
   const save = async () => {
     if (!title.trim()) return show('ใส่ชื่องาน');
 
-    const effectiveOwnerId = getEffectiveOwnerId();
-    const effectiveSelectedMembers = getEffectiveSelectedMembers();
+    const effectiveOwnerId = isChildUser && currentMember ? currentMember.user_id : user.id;
+    const effectiveSelectedMembers = isChildUser && currentMember ? [currentMember.id] : selectedMembers;
 
     if (!effectiveSelectedMembers.length) return show('เลือกสมาชิก');
     if (eventType === 'trip' && endDate < startDate) return show('วันสิ้นสุดต้องไม่ก่อนวันเริ่มต้น');
 
     if (editing) {
       const { error } = await supabase.from('tasks').update({
-        title: title.trim(),
-        date: eventType === 'trip' ? startDate : date,
-        start_time: start,
-        end_time: end,
-        location_url: locationUrl.trim(),
-        zoom_url: zoomUrl.trim(),
-        zoom_username: zoomUser.trim(),
-        zoom_passcode: zoomPass.trim(),
-        note: note.trim(),
-        start_date: eventType === 'trip' ? startDate : date,
-        end_date: eventType === 'trip' ? endDate : date,
-        is_all_day: isAllDay,
-        event_type: eventType
+        title: title.trim(), date, start_time: start, end_time: end, location_url: locationUrl.trim(), zoom_url: zoomUrl.trim(), zoom_username: zoomUser.trim(), zoom_passcode: zoomPass.trim(), note: note.trim(), start_date: eventType === 'trip' ? startDate : date, end_date: eventType === 'trip' ? endDate : date, is_all_day: isAllDay, event_type: eventType
       }).eq('id', editing.id).eq('user_id', effectiveOwnerId);
-
       if (error) return show(error.message);
-
       await supabase.from('task_members').delete().eq('task_id', editing.id).eq('user_id', effectiveOwnerId);
-
-      const r = await supabase.from('task_members').insert(
-        effectiveSelectedMembers.map((member_id) => ({
-          task_id: editing.id,
-          member_id,
-          user_id: effectiveOwnerId,
-        }))
-      );
-
+      const r = await supabase.from('task_members').insert(effectiveSelectedMembers.map((member_id) => ({ task_id: editing.id, member_id, user_id: effectiveOwnerId })));
       if (r.error) return show(r.error.message);
-
-      show('แก้ไขแล้ว');
-      resetForm();
-      setShowForm(false);
-      load();
-      return;
+      show('แก้ไขแล้ว'); resetForm(); setShowForm(false); load(); return;
     }
 
     const makeOne = async (taskDate) => {
-      const taskDateValue = eventType === 'trip' ? startDate : taskDate;
-
       const { data, error } = await supabase.from('tasks').insert({
-        title: title.trim(),
-        date: taskDateValue,
-        start_time: start,
-        end_time: end,
-        location_url: locationUrl.trim(),
-        zoom_url: zoomUrl.trim(),
-        zoom_username: zoomUser.trim(),
-        zoom_passcode: zoomPass.trim(),
-        note: note.trim(),
-        task_level: 'main',
-        user_id: effectiveOwnerId,
-        start_date: eventType === 'trip' ? startDate : taskDate,
-        end_date: eventType === 'trip' ? endDate : taskDate,
-        is_all_day: isAllDay,
-        event_type: eventType,
+        title: title.trim(), date: taskDate, start_time: start, end_time: end, location_url: locationUrl.trim(), zoom_url: zoomUrl.trim(), zoom_username: zoomUser.trim(), zoom_passcode: zoomPass.trim(), note: note.trim(), task_level: 'main', user_id: user.id, start_date: eventType === 'trip' ? startDate : taskDate, end_date: eventType === 'trip' ? endDate : taskDate, is_all_day: isAllDay, event_type: eventType
       }).select().single();
-
       if (error) throw error;
-
-      const r = await supabase.from('task_members').insert(
-        effectiveSelectedMembers.map((member_id) => ({
-          task_id: data.id,
-          member_id,
-          user_id: effectiveOwnerId,
-        }))
-      );
-
+      const r = await supabase.from('task_members').insert(effectiveSelectedMembers.map((member_id) => ({ task_id: data.id, member_id, user_id: effectiveOwnerId })));
       if (r.error) throw r.error;
     };
 
     try {
       if (repeat && eventType !== 'trip') {
         if (!repeatEnd) return show('เลือกวันที่สิ้นสุด');
-
         const skipSet = new Set(skip.split(',').map((x) => x.trim()).filter(Boolean));
-        const startDateObj = new Date(date + 'T00:00:00');
-        const endDateObj = new Date(repeatEnd + 'T00:00:00');
-
+        const startDate = new Date(date + 'T00:00:00');
+        const endDate = new Date(repeatEnd + 'T00:00:00');
         let count = 0;
-
-        for (let cur = new Date(startDateObj); cur <= endDateObj; cur.setDate(cur.getDate() + 1)) {
+        for (let cur = new Date(startDate); cur <= endDate; cur.setDate(cur.getDate() + 1)) {
           const iso = toLocalISO(cur);
-          if (weekdays.includes(cur.getDay()) && !skipSet.has(iso)) {
-            await makeOne(iso);
-            count += 1;
-          }
+          if (weekdays.includes(cur.getDay()) && !skipSet.has(iso)) { await makeOne(iso); count += 1; }
         }
-
         show(`สร้างตารางซ้ำแล้ว ${count} รายการ`);
-      } else {
-        await makeOne(date);
-        show('เพิ่มงานแล้ว');
-      }
-
-      resetForm();
-      setShowForm(false);
-      load();
-    } catch (e) {
-      show(e.message || 'เพิ่มงานไม่สำเร็จ');
-    }
+      } else { await makeOne(date); show('เพิ่มงานแล้ว'); }
+      resetForm(); setShowForm(false); load();
+    } catch (e) { show(e.message); }
   };
 
   const del = async (id) => {
     if (!confirm('ลบรายการนี้?')) return;
-    const ownerId = getEffectiveOwnerId();
+    const ownerId = isChildUser && currentMember ? currentMember.user_id : user.id;
     const { error } = await supabase.from('tasks').delete().eq('id', id).eq('user_id', ownerId);
     if (error) return show(error.message);
     show('ลบแล้ว'); load();
@@ -328,7 +249,7 @@ export default function FamilyApp({ user }) {
     if (!subParentId) return show('เลือกงานหลักก่อน');
     if (!subTitle.trim()) return show('ใส่ชื่องานย่อย');
 
-    const ownerId = getEffectiveOwnerId();
+    const ownerId = isChildUser && currentMember ? currentMember.user_id : user.id;
 
     if (subEditingId) {
       const { error } = await supabase
@@ -467,86 +388,83 @@ export default function FamilyApp({ user }) {
   };
 
 
-  const enablePushNotifications = async () => {
-    try {
-      if (!('Notification' in window)) {
-        alert('อุปกรณ์นี้ไม่รองรับการแจ้งเตือน');
-        return;
-      }
-
-      if (!('serviceWorker' in navigator)) {
-        alert('ไม่รองรับ Service Worker');
-        return;
-      }
-
-      if (!('PushManager' in window)) {
-        alert('อุปกรณ์นี้ไม่รองรับ Push Notification');
-        return;
-      }
-
-      const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
-
-      if (!vapidPublicKey) {
-        alert('ยังไม่ได้ตั้งค่า VITE_VAPID_PUBLIC_KEY');
-        return;
-      }
-
-      const permission = await Notification.requestPermission();
-
-      if (permission !== 'granted') {
-        alert('ยังไม่ได้อนุญาตแจ้งเตือน');
-        return;
-      }
-
-      const registration = await navigator.serviceWorker.register('/custom-sw.js');
-      await navigator.serviceWorker.ready;
-
-      let subscription = await registration.pushManager.getSubscription();
-
-      if (!subscription) {
-        subscription = await registration.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
-        });
-      }
-
-      const json = subscription.toJSON();
-
-      const { error } = await supabase
-        .from('push_subscriptions')
-        .upsert({
-          user_id: user.id,
-          endpoint: json.endpoint,
-          p256dh: json.keys?.p256dh,
-          auth: json.keys?.auth,
-          user_agent: navigator.userAgent,
-        }, {
-          onConflict: 'user_id,endpoint',
-        });
-
-      if (error) {
-        console.error(error);
-        alert(error.message);
-        return;
-      }
-
-      alert('เปิดแจ้งเตือนสำเร็จ 🎉');
-    } catch (e) {
-      console.error(e);
-      alert(e.message || 'เปิดแจ้งเตือนไม่สำเร็จ');
-    }
-  };
-
   const canEditTask = (task) => {
     if (!isChildUser || !currentMember) return true;
     return (taskMembers || []).some((tm) => tm.task_id === task.id && tm.member_id === currentMember.id);
   };
 
-  const openMainForm = () => {
-    if (isChildUser && currentMember) {
-      setSelectedMembers([currentMember.id]);
+
+  const defaultNotificationSettings = () => ({
+    telegram_enabled: true,
+    daily_summary_enabled: true,
+    daily_summary_time: '07:00',
+    next_day_summary_enabled: false,
+    next_day_summary_time: '21:00',
+    default_remind_before_minutes: 15,
+    notify_family_tasks: true,
+  });
+
+  const loadNotificationSettings = async () => {
+    const { data, error } = await supabase
+      .from('notification_settings')
+      .select('*')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (error) {
+      show(error.message);
+      return;
     }
-    setShowForm(!showForm);
+
+    if (data) {
+      setNotificationSettings(data);
+      return;
+    }
+
+    const initial = defaultNotificationSettings();
+    const { data: inserted, error: insertError } = await supabase
+      .from('notification_settings')
+      .insert({ user_id: user.id, ...initial })
+      .select()
+      .single();
+
+    if (insertError) {
+      show(insertError.message);
+      setNotificationSettings(initial);
+      return;
+    }
+
+    setNotificationSettings(inserted);
+  };
+
+  const saveNotificationSettings = async () => {
+    if (!notificationSettings) return;
+    setNotifySaving(true);
+
+    const payload = {
+      telegram_enabled: Boolean(notificationSettings.telegram_enabled),
+      daily_summary_enabled: Boolean(notificationSettings.daily_summary_enabled),
+      daily_summary_time: notificationSettings.daily_summary_time || '07:00',
+      next_day_summary_enabled: Boolean(notificationSettings.next_day_summary_enabled),
+      next_day_summary_time: notificationSettings.next_day_summary_time || '21:00',
+      default_remind_before_minutes: Number(notificationSettings.default_remind_before_minutes || 15),
+      notify_family_tasks: Boolean(notificationSettings.notify_family_tasks),
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error } = await supabase
+      .from('notification_settings')
+      .upsert({ user_id: user.id, ...payload }, { onConflict: 'user_id' });
+
+    setNotifySaving(false);
+
+    if (error) {
+      show(error.message);
+      return;
+    }
+
+    show('บันทึกการตั้งค่าแจ้งเตือนแล้ว');
+    setShowNotifySettings(false);
   };
 
   return (
@@ -584,16 +502,68 @@ export default function FamilyApp({ user }) {
           {viewMode === 'personal' && membersWithColors.filter((m) => !isChildUser || m.id === currentMember?.id).map((m) => (
             <button key={m.id} onClick={() => setActiveMemberId(m.id)} style={{ ...styles.memberPill, borderColor: m.color, background: activeMemberId === m.id ? m.color : '#fff', color: activeMemberId === m.id ? '#fff' : m.color }}>{m.name}</button>
           ))}
-          <button style={styles.addBtn} onClick={openMainForm}>{showForm ? 'ปิดฟอร์ม' : '+ เพิ่มงาน'}</button>
-          <button style={styles.notifyBtn} onClick={enablePushNotifications}>
-            🔔 เปิดแจ้งเตือน
-          </button>
+          <button style={styles.addBtn} onClick={() => setShowForm(!showForm)}>{showForm ? 'ปิดฟอร์ม' : '+ เพิ่มงาน'}</button>
           {!isChildUser && (
             <button style={styles.memberManageBtn} onClick={() => setShowMemberManager(!showMemberManager)}>
               {showMemberManager ? 'ปิดสมาชิก' : 'จัดการสมาชิก'}
             </button>
           )}
         </div>
+
+
+        {showNotifySettings && notificationSettings && (
+          <div style={styles.notifySettingsPanel}>
+            <b>⚙️ ตั้งค่าแจ้งเตือน Telegram</b>
+
+            <label style={styles.settingLine}>
+              <input type="checkbox" checked={Boolean(notificationSettings.telegram_enabled)} onChange={(e) => setNotificationSettings({ ...notificationSettings, telegram_enabled: e.target.checked })} />
+              เปิดแจ้งเตือน Telegram
+            </label>
+
+            <label style={styles.settingLine}>
+              <input type="checkbox" checked={Boolean(notificationSettings.daily_summary_enabled)} onChange={(e) => setNotificationSettings({ ...notificationSettings, daily_summary_enabled: e.target.checked })} />
+              ส่งสรุปตารางวันนี้
+            </label>
+
+            <div style={styles.settingGrid}>
+              <span>เวลาส่งสรุปวันนี้</span>
+              <input style={styles.input} type="time" value={notificationSettings.daily_summary_time || '07:00'} onChange={(e) => setNotificationSettings({ ...notificationSettings, daily_summary_time: e.target.value })} />
+            </div>
+
+            <label style={styles.settingLine}>
+              <input type="checkbox" checked={Boolean(notificationSettings.next_day_summary_enabled)} onChange={(e) => setNotificationSettings({ ...notificationSettings, next_day_summary_enabled: e.target.checked })} />
+              ส่งสรุปตารางพรุ่งนี้
+            </label>
+
+            <div style={styles.settingGrid}>
+              <span>เวลาส่งสรุปพรุ่งนี้</span>
+              <input style={styles.input} type="time" value={notificationSettings.next_day_summary_time || '21:00'} onChange={(e) => setNotificationSettings({ ...notificationSettings, next_day_summary_time: e.target.value })} />
+            </div>
+
+            <div style={styles.settingGrid}>
+              <span>เตือนก่อนงานเริ่ม</span>
+              <select style={styles.input} value={notificationSettings.default_remind_before_minutes || 15} onChange={(e) => setNotificationSettings({ ...notificationSettings, default_remind_before_minutes: Number(e.target.value) })}>
+                <option value={5}>5 นาที</option>
+                <option value={10}>10 นาที</option>
+                <option value={15}>15 นาที</option>
+                <option value={30}>30 นาที</option>
+                <option value={60}>1 ชั่วโมง</option>
+              </select>
+            </div>
+
+            <label style={styles.settingLine}>
+              <input type="checkbox" checked={Boolean(notificationSettings.notify_family_tasks)} onChange={(e) => setNotificationSettings({ ...notificationSettings, notify_family_tasks: e.target.checked })} />
+              รับแจ้งงานรวมของครอบครัว
+            </label>
+
+            <div style={styles.settingActions}>
+              <button style={styles.saveBtn} onClick={saveNotificationSettings} disabled={notifySaving}>
+                {notifySaving ? 'กำลังบันทึก...' : 'บันทึกตั้งค่า'}
+              </button>
+              <button style={styles.cancelBtn} onClick={() => setShowNotifySettings(false)}>ยกเลิก</button>
+            </div>
+          </div>
+        )}
 
         {isChildUser && currentMember && (
           <div style={styles.childNotice}>โหมดลูก: {currentMember.name} — ดูรวมได้ และแก้ไขเฉพาะงานของตัวเอง</div>
@@ -817,14 +787,10 @@ const styles = {
 
   subEditBtn: { border: '1px solid #90A4AE', background: '#fff', color: '#455A64', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', fontSize: 12, fontWeight: 700 },
 
-  notifyBtn: {
-    background: '#fff8e1',
-    color: '#8A5A00',
-    border: '1px solid #FFE082',
-    borderRadius: 8,
-    padding: '8px 12px',
-    cursor: 'pointer',
-    fontWeight: 700,
-  },
+  notifySettingsBtn: { background: '#fff', color: '#2D6E5C', border: '1px solid #2D6E5C', borderRadius: 8, padding: '8px 12px', cursor: 'pointer', fontWeight: 700 },
+  notifySettingsPanel: { background: '#FFFDF6', border: '1px solid #FFE082', borderRadius: 10, padding: 12, marginBottom: 10, display: 'grid', gap: 10 },
+  settingLine: { display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 600 },
+  settingGrid: { display: 'grid', gridTemplateColumns: '160px 180px', gap: 8, alignItems: 'center' },
+  settingActions: { display: 'flex', gap: 8, alignItems: 'center' },
 
 };
